@@ -12,6 +12,7 @@
     "vite": "^8.3.4"
   },
   "dependencies": {
-    "@realeye-io/webcam-eyetracker-light-open": "^1.1.0"
+    "@realeye-io/webcam-eyetracker-light-open": "^1.1.0",
+    "@vladmandic/human": "^3.3.6"
   }
 }

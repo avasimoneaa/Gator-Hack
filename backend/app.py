@@ -19,7 +19,7 @@ import fatigue
 import help_alerts
 import replies
 import twinly  # loads .env first, so the settings below can use it
-from auth import caregiver_required, create_token, hash_password, login_required, password_matches
+from auth import caregiver_required, create_token, hash_password, login_required, password_matches, revoke_session
 from db import close_db, get_db, init_db, new_join_code
 
 app = Flask(__name__)
@@ -199,6 +199,20 @@ def login():
     return jsonify(
         {"token": create_token(user["id"]), "user": user_json(user), "profile": profile_json(profile)}
     )
+
+
+@app.post("/api/auth/verify-password")
+@login_required
+def verify_password():
+    """Confirm the current caregiver's password before a full app sign-out."""
+    if g.user["role"] != "caregiver":
+        return error("caregivers_only", "Only the caregiver can fully sign out.", 403)
+    data = body_json()
+    password = data.get("password") if isinstance(data.get("password"), str) else ""
+    if not password_matches(g.user["password_hash"], password):
+        return error("wrong_password", "Caregiver password is incorrect.", 403)
+    revoke_session(getattr(g, "session_id", None))
+    return jsonify({"verified": True})
 
 
 @app.get("/api/auth/me")

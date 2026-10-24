@@ -45,7 +45,19 @@ def password_matches(password_hash, password):
 
 
 def create_token(user_id):
-    return _get_serializer().dumps({"uid": user_id})
+    session_id = secrets.token_urlsafe(32)
+    db = get_db()
+    db.execute("INSERT INTO auth_sessions (id, user_id) VALUES (?, ?)", (session_id, user_id))
+    db.commit()
+    return _get_serializer().dumps({"uid": user_id, "sid": session_id})
+
+
+def revoke_session(session_id):
+    if not session_id:
+        return
+    db = get_db()
+    db.execute("UPDATE auth_sessions SET active = 0 WHERE id = ?", (session_id,))
+    db.commit()
 
 
 def _user_from_token(token):
@@ -55,6 +67,17 @@ def _user_from_token(token):
         return None
     if not isinstance(data, dict):
         return None
+    session_id = data.get("sid")
+    if not session_id:
+        return None
+    if session_id:
+        active = get_db().execute(
+            "SELECT 1 FROM auth_sessions WHERE id = ? AND user_id = ? AND active = 1",
+            (session_id, data.get("uid")),
+        ).fetchone()
+        if active is None:
+            return None
+    g.session_id = session_id
     return get_db().execute("SELECT * FROM users WHERE id = ?", (data.get("uid"),)).fetchone()
 
 

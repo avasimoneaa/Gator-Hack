@@ -22,3 +22,14 @@ For a hosted frontend demo, `VITE_API_BASE_URL` must point to a reachable ReVoic
 The browser app never receives the Twinly API key. The backend reads it from the ignored `.env` file in the repository root. Set `VITE_API_BASE_URL` only when the backend is running at a different address.
 
 The current MVP task is read-only. It does not send messages, place calls, or book appointments.
+## Caregiver setup and face sign-in
+
+1. Sign in or create the caregiver account. Start gaze tracking, then complete the 17-point calibration.
+2. Enroll the patient, caregiver, or both. Face matching runs in the browser; its face measurements are stored in this browser on this device. Camera images and templates are not sent to the ReVoice backend. Re-enroll on each device/browser that needs face access.
+3. In the portal, **Patient sign out** returns to the face sign-in screen. **Caregiver sign out** is in the upper corner; it asks for the caregiver password, removes the local face profiles, and revokes that browser session at the backend.
+
+Face matching is an accessibility convenience for this hackathon demo, not strong identity verification. The local face template and session are accessible to someone with control of the browser/device, and face matching can be fooled or reject a real user. Keep the caregiver password sign-in available. Do not use this demo to protect sensitive or medical records.
+
+## Medical emergency demo
+
+The dashboard includes a gaze-selectable **Medical emergency (simulation)** flow. It reads the request aloud, requires an explicit confirmation, and displays a simulated outcome. This prototype does not call 911, contact authorities, send a text, or activate any emergency service. The screens describe a possible future workflow only.

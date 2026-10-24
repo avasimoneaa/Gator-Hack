@@ -38,3 +38,8 @@ More setup steps will be added as the frontend and backend are built.
 ## Team
 
 - Ava Aguilar
+## Shared-device face sign-in
+
+The caregiver account signs into the backend first. ReVoice then runs gaze calibration and lets the caregiver enroll a patient face, caregiver face, or both. After enrollment, either person can use the camera to return to the portal. Patient sign-out returns to face sign-in while keeping this browser session available. The caregiver sign-out control requires the caregiver password and revokes that browser session.
+
+Face measurements are kept in the browser on this device and are not uploaded. This is a hackathon convenience flow, not production-grade identity security: browser storage can be changed by someone with device access, and webcam face matching can be fooled or fail. The patient and caregiver use the caregiver's backend permissions while in the portal. ReVoice includes password sign-in as fallback.

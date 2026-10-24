@@ -1,7 +1,9 @@
 import './style.css'
 import { WebcamETLight, getRecommendedPattern, getCalibrationPoints } from '@realeye-io/webcam-eyetracker-light-open'
+import { captureFaceTemplate, matchFaceTemplates, prepareFaceRecognition } from './face-recognition.js'
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001').replace(/\/$/, '')
 const STORAGE_KEY = 'revoice.session'
+const FACE_TEMPLATE_PREFIX = 'revoice.face-template.'
 const app = document.querySelector('#app')
 const samples = []
 const state = {
@@ -9,6 +11,7 @@ const state = {
   user: null,
   profile: null,
   screen: 'auth',
+  emergencySimulation: false,
   authMode: 'login',
   calibrationIndex: 0,
   calibrationRunning: false,
@@ -34,6 +37,12 @@ const state = {
   emailPage: 0,
   selectedEmail: null,
   emailSummary: null,
+  faceLabel: '',
+  faceStatus: '',
+  faceBusy: false,
+  faceLoginPending: false,
+  caregiverLogoutOpen: false,
+  caregiverLogoutError: '',
 }
 
 const DWELL_MS = 1500
@@ -155,6 +164,24 @@ function clearSession() {
   state.pollVersion += 1
 }
 
+function faceTemplatesKey(profileId) {
+  return FACE_TEMPLATE_PREFIX + String(profileId || state.profile?.id || 'unknown')
+}
+function getFaceProfiles() {
+  try { const value = JSON.parse(localStorage.getItem(faceTemplatesKey()) || '[]'); return Array.isArray(value) ? value : [] } catch { return [] }
+}
+function saveFaceProfiles(profiles) { localStorage.setItem(faceTemplatesKey(), JSON.stringify(profiles)) }
+function faceCameraContent(isEnrollment) {
+  const profiles = getFaceProfiles()
+  const choices = isEnrollment && !state.faceLabel
+    ? '<h2>Who is enrolling?</h2><p>Choose the patient or caregiver. You can enroll both.</p><div class="button-stack"><button class="gaze-action primary" data-action="choose-face-role" data-role="Patient">Enroll patient face</button><button class="gaze-action secondary" data-action="choose-face-role" data-role="Caregiver">Enroll caregiver face</button></div>'
+    : '<h2>' + (isEnrollment ? 'Enroll ' + escapeHTML(state.faceLabel) + ' face' : 'Look at the camera') + '</h2><p>' + (isEnrollment ? 'Face measurements stay in this browser on this device. Camera images and templates are not sent to the ReVoice server.' : 'The patient or caregiver can enter ReVoice by looking at the camera.') + '</p><video id="face-video" class="face-video" autoplay muted playsinline aria-label="Live camera preview"></video><p id="face-status" role="status" aria-live="polite">' + escapeHTML(state.faceStatus || 'The camera starts when you choose the button below.') + '</p><p class="face-caution">Demo face matching is a convenience gate, not strong identity verification. It may be fooled and should not protect sensitive accounts on an untrusted device.</p><div class="button-stack"><button class="gaze-action primary" data-action="start-face-flow" ' + (state.faceBusy ? 'disabled' : '') + '>' + (state.faceBusy ? 'Checking the face…' : (isEnrollment ? 'Scan face' : 'Sign in with face')) + '</button>' + (isEnrollment ? '<button class="gaze-action secondary" data-action="back-dashboard">Cancel</button>' : '<button class="gaze-action secondary" data-action="caregiver-password-login">Caregiver password sign-in</button>') + '</div>'
+  return '<section class="panel face-panel"><p class="step-label">' + (isEnrollment ? 'Face setup' : 'Patient sign-in') + '</p>' + choices + (isEnrollment && profiles.length ? '<p>Already enrolled: ' + profiles.map(person => escapeHTML(person.label)).join(', ') + '</p>' : '') + '</section>'
+}
+function caregiverLogoutDialog() {
+  if (!state.caregiverLogoutOpen) return ''
+  return '<div class="logout-backdrop"><section class="panel logout-dialog" role="dialog" aria-modal="true" aria-labelledby="caregiver-logout-title"><h2 id="caregiver-logout-title">Caregiver sign out</h2><p>Enter the caregiver password to fully sign out and remove enrolled faces from this device.</p><form id="caregiver-logout-form"><label>Caregiver password<input name="password" type="password" autocomplete="current-password" required></label><button class="gaze-action primary" type="submit">Verify and sign out</button></form>' + (state.caregiverLogoutError ? '<p class="calibration-message" role="status">' + escapeHTML(state.caregiverLogoutError) + '</p>' : '') + '<button class="gaze-action secondary" data-action="cancel-caregiver-logout">Cancel</button></section></div>'
+}
 function authContent() {
   if (state.authMode === 'signup') {
     return '<section class="panel">' +
@@ -167,7 +194,7 @@ function authContent() {
       '<button class="gaze-action primary" type="submit">Create account</button></form>' +
       '<button class="gaze-action text-button" data-action="show-login">I already have an account</button></section>'
   }
-  return '<section class="panel"><h2>Sign in</h2>' +
+  return '<section class="panel"><h2>Caregiver sign in</h2>' +
     '<p>Use your ReVoice account to connect to the team backend.</p>' +
     '<form id="auth-form">' +
     '<label>Email<input name="email" type="email" autocomplete="username" required></label>' +
@@ -178,11 +205,16 @@ function authContent() {
 
 function screenContent() {
   if (state.screen === 'auth') return authContent()
+  if (state.screen === 'patient-login') return faceCameraContent(false)
+  if (state.screen === 'face-enroll') return faceCameraContent(true)
 
   if (state.screen === 'calibration') {
     const instructions = state.calibrationComplete
-      ? '<h2>Calibration complete</h2><p>ReVoice calibrated the gaze tracker for this session. Continue to your dashboard when you are ready.</p>' +
-        '<button class="gaze-action primary" data-action="continue-dashboard">Continue to ReVoice</button>' +
+      ? (state.faceLoginPending
+        ? '<h2>Calibration complete</h2><p>You are signed in. Continue to the ReVoice portal.</p><button class="gaze-action primary" data-action="continue-dashboard">Continue to ReVoice</button>'
+        : '<h2>Calibration complete</h2><p>Enroll the patient, caregiver, or both. Either enrolled person can scan their face to enter the ReVoice portal.</p>' +
+          '<button class="gaze-action primary" data-action="choose-face-role" data-role="Patient">Scan patient face</button>' +
+          '<button class="gaze-action secondary" data-action="choose-face-role" data-role="Caregiver">Scan caregiver face</button>') +
         '<button class="gaze-action secondary" data-action="repeat-calibration">Calibrate again</button>'
       : '<h2>Calibrate your gaze</h2><p>Follow the dot across 17 screen positions. ReVoice automatically captures five camera samples at each point. Keep your face visible and hold your gaze on each dot. This takes about one minute.</p>' +
         (state.calibrationMessage ? '<p class="calibration-message" role="status">' + escapeHTML(state.calibrationMessage) + '</p>' : '') +
@@ -207,13 +239,34 @@ function screenContent() {
       '<button class="gaze-action task-card" data-action="browse-email">' +
       '<span class="card-icon" aria-hidden="true">✉</span><span><strong>Browse recent emails</strong>' +
       '<small>Hear the sender and subject, choose an email, and ask for a spoken summary.</small></span></button>' +
+      '<button class="gaze-action task-card emergency-card" data-action="open-emergency-simulation">' +
+      '<span class="card-icon" aria-hidden="true">＋</span><span><strong>Medical emergency (simulation)</strong>' +
+      '<small>Practice the emergency response flow. This demo will not call or message anyone.</small></span></button>' +
+      '<button class="gaze-action secondary" data-action="setup-face-unlock">Enroll another face</button>' +
       '<button class="gaze-action secondary voice-button" data-action="start-voice-request" ' +
       (state.voiceBusy ? 'disabled' : '') + '>Optional: speak a request to Gemma</button>' +
       '<p class="voice-note">Try: “Read my newest email.” Your browser may use an online speech service to transcribe; Gemma prepares the request for review.</p>' +
       (state.voiceMessage ? '<p class="voice-note" role="status">' + escapeHTML(state.voiceMessage) + '</p>' : '') +
-      '<button class="gaze-action secondary sign-out" data-action="sign-out">Sign out</button></section>'
+      '<button class="gaze-action secondary sign-out" data-action="sign-out">Patient sign out</button></section>'
   }
 
+  if (state.screen === 'emergency-review') {
+    return '<section class="panel emergency-panel"><p class="step-label">Emergency response · simulation</p>' +
+      '<h2>Review the emergency request</h2>' +
+      '<div class="review-card"><strong>Medical emergency</strong><p>In a real deployment, this step could contact the configured emergency service or trusted responders with the patient’s request for urgent medical help.</p></div>' +
+      '<p class="simulation-banner" role="note"><strong>SIMULATION ONLY:</strong> Confirming will not place a call, send a text, contact authorities, or activate any emergency service.</p>' +
+      '<p>To simulate the next step, look away from Confirm, then look back and hold your gaze for 3 seconds. You can cancel at any time.</p>' +
+      '<div class="button-stack"><button class="gaze-action primary emergency-confirm" data-action="confirm-emergency-simulation">Simulate emergency response</button>' +
+      '<button class="gaze-action secondary" data-action="cancel-emergency-simulation">Cancel and return</button></div></section>'
+  }
+
+  if (state.screen === 'emergency-result') {
+    return '<section class="panel emergency-panel"><p class="step-label">Emergency response · simulation</p>' +
+      '<h2>Simulated response complete</h2>' +
+      '<div class="simulation-banner" role="status"><strong>SIMULATION ONLY — no call or message was sent.</strong></div>' +
+      '<div class="result-card">In a real deployment, ReVoice would now show whether the configured emergency service or trusted responders were contacted and what happened next. This prototype did not contact anyone.</div>' +
+      '<div class="button-stack"><button class="gaze-action primary" data-action="back-dashboard">Return to dashboard</button></div></section>'
+  }
   if (state.screen === 'email-list') {
     const start = state.emailPage * 5
     const pageItems = state.emailList.slice(start, start + 5)
@@ -318,10 +371,11 @@ function render() {
   stopEdgeScroll()
   const greeting = state.profile?.name ? 'Welcome, ' + escapeHTML(state.profile.name) + '. ' : ''
   const cameraText = gazeStarted ? 'Gaze tracking is on.' : 'Camera is off.'
+  const caregiverLogout = state.token && state.user?.role === 'caregiver' ? '<button class="gaze-action caregiver-logout-button" data-action="open-caregiver-logout">Caregiver sign out</button>' : ''
   app.innerHTML = '<main><header><div><p class="eyebrow">ReVoice · accessible task control</p>' +
     '<h1>ReVoice</h1><p class="intro">' + greeting + 'Choose a task with your gaze. ReVoice will speak each step.</p></div>' +
-    '<button id="start-camera" class="gaze-action secondary" data-action="start-gaze" ' +
-    (gazeStarted ? 'disabled' : '') + '>' + (gazeStarted ? 'Gaze tracking on' : 'Start gaze tracking') + '</button></header>' +
+    '<div class="header-actions">' + caregiverLogout + '<button id="start-camera" class="gaze-action secondary" data-action="start-gaze" ' +
+    (gazeStarted ? 'disabled' : '') + '>' + (gazeStarted ? 'Gaze tracking on' : 'Start gaze tracking') + '</button></div></header>' +
     '<section class="tracker" aria-label="Gaze tracking status"><p id="status" role="status" aria-live="polite">' +
     cameraText + '</p><p id="gaze" role="status" aria-live="polite">Gaze position: waiting.</p>' +
     '<button class="gaze-action secondary recalibrate-button" data-action="recalibrate-gaze" ' +
@@ -332,14 +386,66 @@ function render() {
     '<section class="assist-controls" aria-label="Speech controls">' +
     '<button class="gaze-action secondary" data-action="read-screen">Read this screen</button>' +
     '<button class="gaze-action secondary" data-action="pause-speech">Pause speech</button></section>' +
-    '<p id="feedback" class="feedback" role="status" aria-live="polite">Ready.</p>' +
-    '<div id="gaze-cursor" aria-hidden="true"></div></main>'
+    '<p id="feedback" class="feedback" role="status" aria-live="polite">Ready.</p>' + caregiverLogoutDialog() + '<div id="gaze-cursor" aria-hidden="true"></div></main>'
   const status = document.querySelector('#status')
   if (status && gazeStarted) status.textContent = 'Gaze tracking is on.'
   const form = document.querySelector('#auth-form')
   if (form) form.addEventListener('submit', handleAuth)
   const contactForm = document.querySelector('#contact-form')
   if (contactForm) contactForm.addEventListener('submit', handleContactForm)
+  const logoutForm = document.querySelector('#caregiver-logout-form')
+  if (logoutForm) logoutForm.addEventListener('submit', handleCaregiverLogout)
+}
+
+async function handleCaregiverLogout(event) {
+  event.preventDefault()
+  const password = String(new FormData(event.currentTarget).get('password') || '')
+  const submit = event.currentTarget.querySelector('[type="submit"]'); submit.disabled = true
+  state.caregiverLogoutError = ''
+  try {
+    await api('/api/auth/verify-password', { method: 'POST', body: JSON.stringify({ password }) })
+    localStorage.removeItem(faceTemplatesKey()); clearSession()
+    state.screen = 'auth'; state.authMode = 'login'; state.caregiverLogoutOpen = false; state.caregiverLogoutError = ''
+    render(); speak('Caregiver signed out. Face profiles were removed from this device.')
+  } catch (error) { state.caregiverLogoutError = error.message; render(); speak('Password not accepted. You are still signed in.') }
+}
+
+async function runFaceFlow() {
+  const enrollment = state.screen === 'face-enroll', video = document.querySelector('#face-video'), status = document.querySelector('#face-status')
+  if (!video || !navigator.mediaDevices?.getUserMedia) { state.faceStatus = 'Camera access needs a supported browser and localhost or HTTPS.'; render(); speak(state.faceStatus); return }
+  state.faceBusy = true; if (status) status.textContent = 'Starting camera and loading face recognition…'
+  const startButton = document.querySelector('[data-action="start-face-flow"]')
+  if (startButton) { startButton.disabled = true; startButton.textContent = enrollment ? 'Scanning face…' : 'Checking face…' }
+  let stream = null
+  try {
+    await prepareFaceRecognition()
+    if (gazeStarted && gazeVideo?.srcObject) {
+      video.srcObject = gazeVideo.srcObject
+    } else {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } })
+      video.srcObject = stream
+    }
+    await video.play()
+    const progress = (_done, _total, message) => { const el = document.querySelector('#face-status'); if (el) el.textContent = message }
+    if (enrollment) {
+      const templates = await captureFaceTemplate(video, 4, progress), profiles = getFaceProfiles(), label = state.faceLabel || 'Patient'
+      const index = profiles.findIndex(person => person.label === label), person = { label, templates }
+      if (index >= 0) profiles[index] = person; else profiles.push(person)
+      saveFaceProfiles(profiles); state.faceBusy = false; state.faceStatus = ''; state.faceLabel = ''; state.screen = 'dashboard'
+      render(); speak(label + ' face enrolled on this device. Either enrolled person can now enter ReVoice.'); return
+    }
+    const profiles = getFaceProfiles(); let matched = null
+    for (const person of profiles) { if (await matchFaceTemplates(video, person.templates || [], progress)) { matched = person; break } }
+    if (!matched) throw new Error('Face not recognized. Try steady lighting, or ask the caregiver to sign in.')
+    const gazeCalibrated = gazeStarted && Boolean(gazeTracker?.isCalibrated())
+    state.faceBusy = false; state.faceStatus = ''; state.faceLoginPending = !gazeCalibrated; state.screen = gazeCalibrated ? 'dashboard' : 'calibration'
+    state.calibrationIndex = 0; state.calibrationRunning = false; state.calibrationComplete = false; state.calibrationMessage = ''
+    render(); speak('Welcome, ' + matched.label + '. ' + (gazeCalibrated ? 'You are back in ReVoice.' : 'Please start gaze tracking and calibrate before continuing.'))
+  } catch (error) { state.faceBusy = false; state.faceStatus = error.message || 'Face recognition could not start.'; render(); speak(state.faceStatus) }
+  finally {
+    if (stream) stream.getTracks().forEach(track => track.stop())
+    video.pause(); video.srcObject = null
+  }
 }
 
 async function handleContactForm(event) {
@@ -389,6 +495,7 @@ async function handleAuth(event) {
     state.calibrationRunning = false
     state.calibrationComplete = false
     state.calibrationMessage = ''
+    state.faceLoginPending = false
     saveSession()
     render()
     speak(gazeStarted
@@ -483,8 +590,9 @@ function handleGazePoint(x, y) {
   })
   const now = performance.now()
   const isConfirm = (state.screen === 'review' && target?.dataset.action === 'confirm-task') ||
-    (state.screen === 'message-review' && target?.dataset.action === 'confirm-message')
-  if ((state.screen === 'review' || state.screen === 'message-review') && !confirmGazeArmed) {
+    (state.screen === 'message-review' && target?.dataset.action === 'confirm-message') ||
+    (state.screen === 'emergency-review' && target?.dataset.action === 'confirm-emergency-simulation')
+  if ((state.screen === 'review' || state.screen === 'message-review' || state.screen === 'emergency-review') && !confirmGazeArmed) {
     if (!isConfirm) confirmGazeArmed = true
     else {
       resetDwell()
@@ -1150,18 +1258,38 @@ app.addEventListener('click', async function (event) {
 
     case 'continue-dashboard':
       state.screen = 'dashboard'
+      state.faceLoginPending = false
       render()
       speak('Calibration complete. Welcome to your ReVoice dashboard.')
       break
+    case 'choose-face-role': state.faceLabel = button.dataset.role || 'Patient'; state.faceStatus = ''; state.screen = 'face-enroll'; render(); speak('Ready to scan the ' + state.faceLabel.toLowerCase() + ' face.'); break
+    case 'setup-face-unlock': state.faceLabel = ''; state.faceStatus = ''; state.screen = 'face-enroll'; render(); speak('Choose whether to enroll the patient or caregiver face.'); break
+    case 'start-face-flow': await runFaceFlow(); break
+    case 'open-caregiver-logout': state.caregiverLogoutOpen = true; state.caregiverLogoutError = ''; render(); break
+    case 'cancel-caregiver-logout': state.caregiverLogoutOpen = false; state.caregiverLogoutError = ''; render(); break
+    case 'caregiver-password-login': clearSession(); state.screen = 'auth'; state.authMode = 'login'; render(); speak('Caregiver sign in. Enter the account email and password.'); break
     case 'repeat-calibration': beginCalibration(); break
     case 'show-signup': state.authMode = 'signup'; render(); break
     case 'show-login': state.authMode = 'login'; render(); break
-    case 'sign-out':
-      clearSession()
-      state.screen = 'auth'
-      state.authMode = 'login'
+    case 'sign-out': state.screen = 'patient-login'; state.faceStatus = ''; state.faceBusy = false; render(); speak('ReVoice is ready for patient or caregiver face sign-in.'); break
+    case 'open-emergency-simulation':
+      state.emergencySimulation = false
+      state.screen = 'emergency-review'
+      confirmGazeArmed = false
       render()
-      speak('You have signed out.')
+      speak('Medical emergency simulation. No call or message will be sent. Review the screen. To continue, look away from Confirm, then look back and hold for three seconds. Cancel returns to your dashboard.')
+      break
+    case 'confirm-emergency-simulation':
+      state.emergencySimulation = true
+      state.screen = 'emergency-result'
+      render()
+      speak('Simulation complete. No call or message was sent. In a real deployment, ReVoice would show the emergency response status here.')
+      break
+    case 'cancel-emergency-simulation':
+      state.emergencySimulation = false
+      state.screen = 'dashboard'
+      render()
+      speak('Emergency simulation canceled. No call or message was sent. Back to your dashboard.')
       break
     case 'start-voice-request': startVoiceRequest(); break;
     case 'choose-email': chooseEmail(); break
@@ -1223,7 +1351,7 @@ async function restoreSession() {
     const result = await api('/api/auth/me')
     state.user = result.user
     state.profile = result.profile
-    state.screen = 'calibration'
+    state.screen = getFaceProfiles().length ? 'patient-login' : 'calibration'
   } catch {
     clearSession()
     state.screen = 'auth'
