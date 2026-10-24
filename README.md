@@ -1,2 +1,38 @@
-# Gator-Hack
-Gator hack 2026
+# ReVoice
+
+An eye-gaze assistant that lets people with ALS and other severe mobility limitations get things done on a computer — make calls, send texts, book appointments, and speak saved phrases — using only their eyes. ReVoice sends tasks to Twinly, a desktop AI agent, and reads its progress and results aloud, so the user doesn't even need to see the screen.
+
+Built for **Gator Hack 2026**.
+
+## How it works
+
+1. **Look to choose.** The user rests their gaze on one of a few large tiles. A ring fills up, then the tile is selected (dwell selection).
+2. **Twinly does the work.** ReVoice sends the task to Twinly, which carries it out on the computer.
+3. **Hear what's happening.** Each step and the final result are spoken aloud.
+4. **Stay in control.** Anything important — sending, booking, calling, submitting — needs the user's confirmation first. Pause and Cancel are always available.
+
+Caregivers and family can customize the dashboard (up to 4 tiles at a time), contacts, quick phrases, and voice.
+
+## Project structure
+
+| Folder | What goes there |
+|---|---|
+| `frontend/` | The app screens: dashboard, dwell selection, confirmations, settings |
+| `backend/` | The server code that holds the Twinly API key and talks to Twinly |
+
+## Tech
+
+- **Twinly** — desktop AI agent that performs tasks on the user's computer
+- **Figma Make** — interface design and prototype
+- **Browser text-to-speech** — spoken progress and phrases
+
+## Running locally
+
+1. Copy `.env.example` to a new file named `.env`.
+2. Put your own Twinly API key in `.env`. **Never commit `.env`** — it's already listed in `.gitignore`.
+
+More setup steps will be added as the frontend and backend are built.
+
+## Team
+
+- Ava Aguilar
