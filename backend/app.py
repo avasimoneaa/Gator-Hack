@@ -595,6 +595,15 @@ def get_job(job_id):
     """Check on a job. Add ?wait=25 to wait for it to change (max 25 seconds)."""
     if not JOB_ID_PATTERN.match(job_id):
         return error("invalid_job_id", "That doesn't look like a job id.")
+    # Twinly job IDs are not scoped to an account. Only expose jobs created
+    # through this ReVoice profile so another logged-in family can't inspect
+    # or cancel a different profile's work by guessing an ID.
+    owned = get_db().execute(
+        "SELECT 1 FROM task_history WHERE profile_id = ? AND job_id = ?",
+        (g.user["profile_id"], job_id),
+    ).fetchone()
+    if owned is None:
+        return error("not_found", "No such job.", 404)
     try:
         wait = min(max(float(request.args.get("wait", 0)), 0), 25)
     except ValueError:
@@ -607,6 +616,12 @@ def get_job(job_id):
 def cancel_job(job_id):
     if not JOB_ID_PATTERN.match(job_id):
         return error("invalid_job_id", "That doesn't look like a job id.")
+    owned = get_db().execute(
+        "SELECT 1 FROM task_history WHERE profile_id = ? AND job_id = ?",
+        (g.user["profile_id"], job_id),
+    ).fetchone()
+    if owned is None:
+        return error("not_found", "No such job.", 404)
     return forward(twinly.cancel_job(job_id))
 
 
