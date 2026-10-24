@@ -15,6 +15,9 @@ import re
 import requests
 from flask import Flask, g, jsonify, request
 
+import fatigue
+import help_alerts
+import replies
 import twinly  # loads .env first, so the settings below can use it
 from auth import caregiver_required, create_token, hash_password, login_required, password_matches
 from db import close_db, get_db, init_db, new_join_code
@@ -26,7 +29,9 @@ init_db()
 JOB_ID_PATTERN = re.compile(r"^[A-Za-z0-9-]{1,100}$")
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-TILE_OPTIONS = {"call", "text", "phrases", "appointments"}
+# Tiles caregivers can put on the dashboard. The Help button is always shown
+# separately, so it can never be removed by accident.
+TILE_OPTIONS = {"call", "text", "phrases", "appointments", "keyboard", "conversation", "email", "refills"}
 MAX_TILES = 4
 VOICE_OPTIONS = {"female", "male", "personal"}
 TEXT_SIZES = {"medium", "large", "extra-large"}
@@ -74,6 +79,7 @@ def profile_json(profile):
         "voice_speed": profile["voice_speed"],
         "text_size": profile["text_size"],
         "tiles": json.loads(profile["tiles"]),
+        "fatigue_mode": bool(profile["fatigue_mode"]),
     }
 
 
@@ -205,7 +211,7 @@ def get_profile():
 @app.put("/api/profile")
 @caregiver_required
 def update_profile():
-    """Change any of: name, dwell_ms, voice, voice_speed, text_size, tiles."""
+    """Change any of: name, dwell_ms, voice, voice_speed, text_size, tiles, fatigue_mode."""
     data = body_json()
     changes = {}
 
@@ -232,6 +238,10 @@ def update_profile():
         if data["text_size"] not in TEXT_SIZES:
             return error("invalid_text_size", "text_size must be 'medium', 'large', or 'extra-large'.")
         changes["text_size"] = data["text_size"]
+    if "fatigue_mode" in data:
+        if not isinstance(data["fatigue_mode"], bool):
+            return error("invalid_fatigue_mode", "fatigue_mode must be true or false.")
+        changes["fatigue_mode"] = int(data["fatigue_mode"])
     if "tiles" in data:
         tiles = data["tiles"]
         if (
@@ -257,29 +267,74 @@ def update_profile():
 
 # ---------- contacts ----------
 
+def help_order_field(data):
+    """help_order: 1 = text first in an emergency, 2 = second... null = not a help contact."""
+    value = data.get("help_order")
+    if value is None:
+        return True, None
+    if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 10:
+        return False, None
+    return True, value
+
+
+def contact_json(row):
+    return {"id": row["id"], "name": row["name"], "phone": row["phone"], "help_order": row["help_order"]}
+
+
 @app.get("/api/contacts")
 @login_required
 def list_contacts():
     rows = get_db().execute(
-        "SELECT id, name, phone FROM contacts WHERE profile_id = ? ORDER BY name", (g.user["profile_id"],)
+        "SELECT * FROM contacts WHERE profile_id = ? ORDER BY name", (g.user["profile_id"],)
     ).fetchall()
-    return jsonify([dict(row) for row in rows])
+    return jsonify([contact_json(row) for row in rows])
 
 
 @app.post("/api/contacts")
 @caregiver_required
 def add_contact():
-    """Add {"name": "Mom", "phone": "+13525550100"}."""
+    """Add {"name": "Mom", "phone": "+13525550100", "help_order": 1}. help_order is optional."""
     data = body_json()
     name, phone = text_field(data, "name", 80), text_field(data, "phone", 40)
     if not name or not phone:
         return error("missing_fields", "Send both 'name' and 'phone'.")
+    ok, help_order = help_order_field(data)
+    if not ok:
+        return error("invalid_help_order", "help_order must be a number from 1 to 10, or null.")
     db = get_db()
     cursor = db.execute(
-        "INSERT INTO contacts (profile_id, name, phone) VALUES (?, ?, ?)", (g.user["profile_id"], name, phone)
+        "INSERT INTO contacts (profile_id, name, phone, help_order) VALUES (?, ?, ?, ?)",
+        (g.user["profile_id"], name, phone, help_order),
     )
     db.commit()
-    return jsonify({"id": cursor.lastrowid, "name": name, "phone": phone}), 201
+    return jsonify(contact_json(db.execute("SELECT * FROM contacts WHERE id = ?", (cursor.lastrowid,)).fetchone())), 201
+
+
+@app.put("/api/contacts/<int:contact_id>")
+@caregiver_required
+def update_contact(contact_id):
+    """Change any of: name, phone, help_order."""
+    data = body_json()
+    db = get_db()
+    contact = db.execute(
+        "SELECT * FROM contacts WHERE id = ? AND profile_id = ?", (contact_id, g.user["profile_id"])
+    ).fetchone()
+    if contact is None:
+        return error("not_found", "No such contact.", 404)
+    name = text_field(data, "name", 80) if "name" in data else contact["name"]
+    phone = text_field(data, "phone", 40) if "phone" in data else contact["phone"]
+    if not name or not phone:
+        return error("missing_fields", "Name and phone can't be empty.")
+    help_order = contact["help_order"]
+    if "help_order" in data:
+        ok, help_order = help_order_field(data)
+        if not ok:
+            return error("invalid_help_order", "help_order must be a number from 1 to 10, or null.")
+    db.execute(
+        "UPDATE contacts SET name = ?, phone = ?, help_order = ? WHERE id = ?", (name, phone, help_order, contact_id)
+    )
+    db.commit()
+    return jsonify(contact_json(db.execute("SELECT * FROM contacts WHERE id = ?", (contact_id,)).fetchone()))
 
 
 @app.delete("/api/contacts/<int:contact_id>")
@@ -346,6 +401,122 @@ def history():
         (g.user["profile_id"],),
     ).fetchall()
     return jsonify([dict(row) for row in rows])
+
+
+# ---------- conversation co-pilot ----------
+
+@app.post("/api/replies")
+@login_required
+def suggest_replies():
+    """Suggest whole replies.
+
+    {"heard": "what the other person just said",
+     "conversation": [{"speaker": "them" or "me", "text": "..."}],   (optional, earlier turns)
+     "typed": "what the user has started typing",                    (optional)
+     "count": 3}                                                     (optional, 1-4)
+    """
+    data = body_json()
+    heard, typed = text_field(data, "heard", 1000), text_field(data, "typed", 300)
+    if not heard and not typed and not data.get("conversation"):
+        return error("missing_text", "Send 'heard' (what the other person said) or 'typed'.")
+    count = data.get("count", 3)
+    if not isinstance(count, int) or isinstance(count, bool):
+        count = 3
+    count = min(max(count, 1), replies.MAX_SUGGESTIONS)
+    profile = current_profile()
+    phrases = [
+        row["text"]
+        for row in get_db().execute("SELECT text FROM phrases WHERE profile_id = ? ORDER BY id", (profile["id"],))
+    ]
+    status, body = replies.suggest(profile["name"], heard, typed, data.get("conversation"), count, phrases)
+    return jsonify(body), status
+
+
+# ---------- help alerts ----------
+
+@app.post("/api/help")
+@login_required
+def start_help():
+    """The Help button: texts help contacts in order until someone replies."""
+    profile = current_profile()
+    alert = help_alerts.start(get_db(), g.user, profile["name"])
+    if alert is None:
+        return error(
+            "no_help_contacts",
+            "No help contacts are set up. A caregiver needs to give at least one contact a help_order.",
+        )
+    return jsonify(help_alerts.to_json(alert)), 201
+
+
+@app.get("/api/help/<int:alert_id>")
+@login_required
+def check_help(alert_id):
+    """Check for a reply. Call every 10-20 seconds and read 'say' aloud when it changes."""
+    db = get_db()
+    alert = help_alerts.get(db, alert_id, g.user["profile_id"])
+    if alert is None:
+        return error("not_found", "No such alert.", 404)
+    alert = help_alerts.refresh(db, alert, current_profile()["name"])
+    return jsonify(help_alerts.to_json(alert))
+
+
+@app.post("/api/help/<int:alert_id>/cancel")
+@login_required
+def cancel_help(alert_id):
+    """False alarm. Everyone already texted is told the user is OK."""
+    db = get_db()
+    alert = help_alerts.get(db, alert_id, g.user["profile_id"])
+    if alert is None:
+        return error("not_found", "No such alert.", 404)
+    alert = help_alerts.cancel(db, alert, current_profile()["name"])
+    return jsonify(help_alerts.to_json(alert))
+
+
+# ---------- fatigue mode ----------
+
+def whole_number(data, name, low, high):
+    value = data.get(name)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high:
+        return None
+    return value
+
+
+@app.post("/api/gaze-stats")
+@login_required
+def add_gaze_stats():
+    """The app sends this every few minutes of use:
+    {"local_hour": 0-23, "minutes": 2, "selections": 14, "near_misses": 3,
+     "corrections": 1, "avg_select_ms": 1850}
+    """
+    data = body_json()
+    stats = {
+        "local_hour": whole_number(data, "local_hour", 0, 23),
+        "minutes": whole_number(data, "minutes", 0.1, 120),
+        "selections": whole_number(data, "selections", 0, 10000),
+        "near_misses": whole_number(data, "near_misses", 0, 10000),
+        "corrections": whole_number(data, "corrections", 0, 10000),
+        "avg_select_ms": whole_number(data, "avg_select_ms", 0, 120000),
+    }
+    missing = [name for name, value in stats.items() if value is None]
+    if missing:
+        return error("invalid_stats", "Missing or out-of-range: " + ", ".join(missing))
+    for name in ("local_hour", "selections", "near_misses", "corrections"):
+        stats[name] = int(stats[name])
+    fatigue.record(get_db(), g.user, stats)
+    return jsonify({"saved": True}), 201
+
+
+@app.get("/api/fatigue")
+@login_required
+def check_fatigue():
+    """How tired does the user seem right now? Add ?local_hour=0-23.
+    Returns a level (normal / tired / very_tired), reasons, and suggested
+    settings. The app should ASK before applying them."""
+    try:
+        local_hour = int(request.args.get("local_hour", ""))
+    except ValueError:
+        local_hour = -1
+    return jsonify(fatigue.assess(get_db(), current_profile(), local_hour))
 
 
 # ---------- Twinly ----------

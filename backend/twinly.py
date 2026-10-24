@@ -67,6 +67,15 @@ def usage():
     return _call("GET", "/usage")
 
 
+# ---- Cloud (answers right away; uses the "chat" scope) ----
+
+def chat(messages, **options):
+    """OpenAI-style chat with Twinly's model, e.g. to suggest replies."""
+    payload = {"model": "twinly-core", "messages": messages}
+    payload.update(options)
+    return _call("POST", "/chat/completions", json=payload)
+
+
 # ---- Jobs that run on the owner's Mac ----
 
 def create_task(prompt, output_schema=None):
@@ -80,6 +89,11 @@ def create_task(prompt, output_schema=None):
 def send_message(to, text):
     """Send a text. It goes out as soon as the job runs; there is no preview."""
     return _call("POST", "/messages", json={"to": to, "text": text})
+
+
+def read_messages(with_contact, limit=10, wait=20):
+    """Recent messages in the conversation with one number or contact."""
+    return _call("GET", "/messages", params={"with": with_contact, "limit": limit, "wait": wait})
 
 
 def place_call(to, goal, say=None):

@@ -50,6 +50,36 @@ CREATE TABLE IF NOT EXISTS phrases (
     created_at TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Help alerts: who was texted, in what order, and whether anyone replied.
+CREATE TABLE IF NOT EXISTS help_alerts (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id          INTEGER NOT NULL REFERENCES profiles(id),
+    user_id             INTEGER NOT NULL REFERENCES users(id),
+    status              TEXT    NOT NULL,  -- waiting, acknowledged, no_response, failed, canceled
+    contacts            TEXT    NOT NULL,  -- JSON list of help contacts, in order
+    notified            TEXT    NOT NULL DEFAULT '[]',  -- JSON list of who was texted, and when
+    next_index          INTEGER NOT NULL DEFAULT 0,     -- next contact to try
+    next_escalation_at  REAL,              -- when to text the next contact if no reply
+    last_checked_at     REAL    NOT NULL DEFAULT 0,
+    reply_from          TEXT,
+    reply_text          TEXT,
+    created_at          REAL    NOT NULL
+);
+
+-- Gaze stats the app reports every few minutes, used by fatigue mode.
+CREATE TABLE IF NOT EXISTS gaze_stats (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id    INTEGER NOT NULL REFERENCES profiles(id),
+    user_id       INTEGER NOT NULL REFERENCES users(id),
+    recorded_at   REAL    NOT NULL,   -- unix time
+    local_hour    INTEGER NOT NULL,   -- 0-23, the user's own clock
+    minutes       REAL    NOT NULL,   -- how long this sample covers
+    selections    INTEGER NOT NULL,   -- completed dwell selections
+    near_misses   INTEGER NOT NULL,   -- dwell ring started but gaze left before it finished
+    corrections   INTEGER NOT NULL,   -- Back / Undo / Cancel presses
+    avg_select_ms REAL    NOT NULL    -- average time to make a selection
+);
+
 -- A record of what Twinly was asked to do.
 CREATE TABLE IF NOT EXISTS task_history (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,10 +114,24 @@ def close_db(_error=None):
         conn.close()
 
 
+# Columns added after the first version. Older database files get them
+# added automatically, so nobody has to delete their data.
+NEW_COLUMNS = {
+    "profiles": {"fatigue_mode": "INTEGER NOT NULL DEFAULT 1"},
+    "contacts": {"help_order": "INTEGER"},  # 1 = text first in an emergency; empty = not a help contact
+}
+
+
 def init_db():
-    """Create the tables if they don't exist yet. Safe to run every startup."""
+    """Create or upgrade the tables. Safe to run every startup."""
     conn = sqlite3.connect(db_path())
     conn.executescript(SCHEMA)
+    for table, columns in NEW_COLUMNS.items():
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for column, definition in columns.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    conn.commit()
     conn.close()
 
 
