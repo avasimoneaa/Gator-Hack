@@ -57,11 +57,11 @@ def record(db, user, data):
     db.commit()
 
 
-def assess(db, profile, local_hour):
+def assess(db, profile, user_id, local_hour):
     now = time.time()
     rows = db.execute(
-        "SELECT * FROM gaze_stats WHERE profile_id = ? AND recorded_at >= ?",
-        (profile["id"], now - BASELINE_DAYS * 86400),
+        "SELECT * FROM gaze_stats WHERE profile_id = ? AND user_id = ? AND recorded_at >= ?",
+        (profile["id"], user_id, now - BASELINE_DAYS * 86400),
     ).fetchall()
     recent_rows = [r for r in rows if r["recorded_at"] >= now - RECENT_MINUTES * 60]
     baseline_rows = [r for r in rows if r["recorded_at"] < now - RECENT_MINUTES * 60]

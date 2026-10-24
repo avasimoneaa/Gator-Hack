@@ -32,7 +32,19 @@ def _now():
 def _message_job_ok(status, body):
     if status not in (200, 202) or not isinstance(body, dict):
         return False
-    return body.get("status") not in ("failed", "canceled", "expired")
+    job = body.get("job") if isinstance(body.get("job"), dict) else body
+    return str(job.get("status", "")).lower() not in ("failed", "canceled", "cancelled", "expired")
+
+
+def _job_from(body):
+    if not isinstance(body, dict):
+        return {}
+    return body.get("job") if isinstance(body.get("job"), dict) else body
+
+
+def _job_id(body):
+    job = _job_from(body)
+    return str(job.get("id") or job.get("job_id") or "")
 
 
 def _to_unix(value):
@@ -85,10 +97,22 @@ def _text_next_contact(alert, patient_name):
         )
         sent_at = _now()
         try:
-            ok = _message_job_ok(*twinly.send_message(contact["phone"], message))
+            response_status, body = twinly.send_message(contact["phone"], message)
+            accepted = _message_job_ok(response_status, body)
         except requests.RequestException:
-            ok = False
-        alert["notified"].append({**contact, "sent_at": sent_at, "ok": ok})
+            accepted, body = False, {}
+        job = _job_from(body)
+        job_status = str(job.get("status", "")).lower()
+        job_id = _job_id(body)
+        if accepted and job_status in {"failed", "canceled", "cancelled", "expired"}:
+            accepted = False
+        if accepted and job_id and job_status not in {"done", "completed", "succeeded", "success"}:
+            alert["notified"].append({**contact, "sent_at": None, "ok": None, "job_id": job_id})
+            alert["status"] = "sending"
+            alert["next_escalation_at"] = None
+            return
+        ok = accepted
+        alert["notified"].append({**contact, "sent_at": sent_at if ok else None, "ok": ok})
         if ok:
             alert["status"] = "waiting"
             alert["next_escalation_at"] = sent_at + ESCALATE_AFTER_SECONDS
@@ -152,6 +176,32 @@ def refresh(db, alert, patient_name):
     """Look for a reply, and text the next person if it's been too long."""
     if alert["status"] in DONE_STATUSES or _now() - alert["last_checked_at"] < CHECK_EVERY_SECONDS:
         return alert
+    if alert["status"] == "sending":
+        pending = next((p for p in reversed(alert["notified"]) if p.get("ok") is None and p.get("job_id")), None)
+        if pending:
+            try:
+                status, body = twinly.get_job(pending["job_id"], wait=0)
+            except requests.RequestException:
+                status, body = 0, {}
+            job = _job_from(body)
+            job_status = str(job.get("status", "")).lower()
+            if status == 200 and job_status in {"done", "completed", "succeeded", "success"}:
+                pending["ok"] = True
+                pending["sent_at"] = _now()
+                pending["job_status"] = job_status
+                alert["status"] = "waiting"
+                alert["next_escalation_at"] = pending["sent_at"] + ESCALATE_AFTER_SECONDS
+            elif job_status in {"failed", "canceled", "cancelled", "expired"}:
+                pending["ok"] = False
+                pending["sent_at"] = None
+                pending["job_status"] = job_status
+                alert["status"] = "waiting"
+                _text_next_contact(alert, patient_name)
+            elif job_status:
+                pending["job_status"] = job_status
+        alert["last_checked_at"] = _now()
+        _save(db, alert)
+        return alert
     _check_for_reply(alert)
     if alert["status"] == "waiting" and alert["next_escalation_at"] and _now() >= alert["next_escalation_at"]:
         _text_next_contact(alert, patient_name)
@@ -165,7 +215,12 @@ def cancel(db, alert, patient_name):
     if alert["status"] in ("canceled", "failed"):
         return alert
     for person in alert["notified"]:
-        if person["ok"]:
+        if person.get("ok") is None and person.get("job_id"):
+            try:
+                twinly.cancel_job(person["job_id"])
+            except requests.RequestException:
+                pass
+        elif person.get("ok"):
             try:
                 twinly.send_message(person["phone"], f"Update from ReVoice: false alarm, {patient_name} is OK. Thank you!")
             except requests.RequestException:
@@ -188,6 +243,12 @@ def to_json(alert):
     status = alert["status"]
     if status == "acknowledged":
         say = f"{alert['reply_from']} replied: {alert['reply_text']}"
+    elif status == "sending":
+        pending = next((p for p in reversed(alert["notified"]) if p.get("ok") is None), None)
+        if pending and pending.get("job_status") == "needs_approval":
+            say = f"Twinly needs approval on its computer before it can send the alert to {pending['name']}. I will confirm when the message is sent."
+        else:
+            say = f"Twinly is processing the alert for {pending['name']}. I will confirm when the message is sent."
     elif status == "waiting":
         say = f"Alert sent to {_names(reached)}. Waiting for a reply."
     elif status == "no_response":
@@ -203,6 +264,7 @@ def to_json(alert):
         "texted": [{"name": p["name"], "sent": p["ok"]} for p in alert["notified"]],
         "reply_from": alert["reply_from"],
         "reply_text": alert["reply_text"],
+        "approval_required": any(p.get("job_status") == "needs_approval" and p.get("ok") is None for p in alert["notified"]),
         "next_escalation_in_seconds": (
             max(0, round(alert["next_escalation_at"] - _now())) if alert["next_escalation_at"] else None
         ),

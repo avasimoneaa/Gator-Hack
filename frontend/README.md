@@ -1,6 +1,6 @@
 # Frontend
 
-The ReVoice Vite app provides webcam gaze selection, spoken feedback, account login, and a confirmed read-only Twinly task flow.
+The ReVoice Vite app provides webcam gaze selection, spoken feedback, caregiver-managed dashboard tiles and contacts, quick phrases, safe help alerts, conversation replies, fatigue support, an eye-gaze keyboard, and confirmed Twinly tasks, calls, and personal-voice audio.
 
 ## Run locally
 
@@ -10,10 +10,18 @@ The ReVoice Vite app provides webcam gaze selection, spoken feedback, account lo
 4. On the dashboard, choose **Speak a request to Gemma** and say “Read my newest email.” The browser transcribes your speech, and Gemma maps it to the supported task.
 5. Review the prepared request and gaze-select **Confirm and start**. Gemma never starts Twinly tasks by itself.
 
+Caregiver accounts can open **Quick phrases** from the dashboard to save or remove phrases. Patients can select a phrase for browser speech or request audio from their configured Twinly voice. The conversation copilot also offers both browser speech and Twinly voice output for each suggested reply.
+
+Caregivers can add contacts and set their help order in **Caregiver settings**. The patient can start an alert from the dashboard, hear status updates, and cancel a false alarm. Live alerts require the Twinly API and desktop app. Keep ReVoice open and signed in while waiting for replies or escalation; the browser polls alert status and drives the two-minute escalation.
+
+The **Conversation replies** tile can listen for the other person or accept a transcript typed with the eye-gaze keyboard, then ask Twinly for three short suggestions. A user can also start a reply with the eye-gaze keyboard; Twinly uses that unfinished reply as context for suggestions. Selecting a suggestion speaks it aloud. Browser speech recognition may use an online service, and the transcript is sent to Twinly.
+
+Fatigue support records gaze selections, near-misses, corrections, and selection time in two-minute batches while fatigue mode is enabled. Choose **Check fatigue support** on the dashboard to view an assessment. It compares up to 20 recent minutes with the signed-in user's rolling 14-day baseline when enough history exists, and otherwise says it is still learning. Longer dwell and fewer, larger dashboard choices apply only after the user accepts them and last for the browser session. The rest screen hides dashboard tasks and presents a gaze-selectable resume action. Caregivers can set a persistent dwell time, toggle fatigue support, and choose up to four dashboard tiles in **Caregiver settings**.
+
 ## Local Gemma setup
 
-1. Install Ollama for Windows and start the Ollama app.
-2. In PowerShell, run `ollama run gemma4:e2b` once to download the model. The backend defaults to this model and to Ollama at `http://127.0.0.1:11434`.
+1. Install Ollama for your operating system and start Ollama.
+2. In Terminal (macOS/Linux) or PowerShell (Windows), run `ollama run gemma4:e2b` once to download the model. The backend defaults to this model and to Ollama at `http://127.0.0.1:11434`.
 3. Keep Ollama running while using ReVoice. Start the Flask backend on the same computer so its `/api/interpret` route can reach the local model.
 4. The browser voice input uses the browser's speech-recognition feature; availability and whether transcription uses an online service depend on the browser. The transcript is sent to the ReVoice backend for Gemma interpretation.
 
@@ -21,10 +29,9 @@ For a hosted frontend demo, `VITE_API_BASE_URL` must point to a reachable ReVoic
 
 The browser app never receives the Twinly API key. The backend reads it from the ignored `.env` file in the repository root. Set `VITE_API_BASE_URL` only when the backend is running at a different address.
 
-The current MVP task is read-only. It does not send messages, place calls, or book appointments.
 ## Caregiver setup and face sign-in
 
-1. Sign in or create the caregiver account. Start gaze tracking, then complete the 17-point calibration.
+1. Sign in or create the caregiver account. Start gaze tracking, then complete the 9-point calibration.
 2. Enroll the patient, caregiver, or both. Face matching runs in the browser; its face measurements are stored in this browser on this device. Camera images and templates are not sent to the ReVoice backend. Re-enroll on each device/browser that needs face access.
 3. In the portal, **Patient sign out** returns to the face sign-in screen. **Caregiver sign out** is in the upper corner; it asks for the caregiver password, removes the local face profiles, and revokes that browser session at the backend.
 
@@ -33,3 +40,5 @@ Face matching is an accessibility convenience for this hackathon demo, not stron
 ## Medical emergency demo
 
 The dashboard includes a gaze-selectable **Medical emergency (simulation)** flow. It reads the request aloud, requires an explicit confirmation, and displays a simulated outcome. This prototype does not call 911, contact authorities, send a text, or activate any emergency service. The screens describe a possible future workflow only.
+
+Appointment and refill tiles first ask Twinly to prepare a request and stop before the final submission. ReVoice then displays the returned summary and requires a separate three-second gaze confirmation before it asks Twinly to submit the staged request. The computer running Twinly must be available; Twinly may also pause for its own desktop approval. Do not include credentials, payment information, or sensitive identifiers in request details. Calls and texts are separate actions and require on-screen review and confirmation. Twinly personal-voice speech requires a voice configured in the Twinly app. Calibration presents a face-positioning preview and nine gaze points; the camera remains required for gaze selection.

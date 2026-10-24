@@ -324,6 +324,21 @@ def add_contact():
     if not ok:
         return error("invalid_help_order", "help_order must be a number from 1 to 10, or null.")
     db = get_db()
+    if help_order is not None:
+        existing = db.execute(
+            "SELECT id, help_order FROM contacts WHERE profile_id = ? AND help_order IS NOT NULL ORDER BY help_order, id",
+            (g.user["profile_id"],),
+        ).fetchall()
+        if len(existing) >= 10:
+            return error("help_list_full", "A profile can have up to ten help contacts. Remove one before adding another.", 409)
+        # Repair duplicate priorities from older records, then make room at the selected position.
+        normalized = []
+        for position, row in enumerate(existing, start=1):
+            db.execute("UPDATE contacts SET help_order = ? WHERE id = ?", (position, row["id"]))
+            normalized.append((row["id"], position))
+        for contact_id, position in reversed(normalized):
+            if position >= help_order:
+                db.execute("UPDATE contacts SET help_order = ? WHERE id = ?", (position + 1, contact_id))
     cursor = db.execute(
         "INSERT INTO contacts (profile_id, name, phone, help_order) VALUES (?, ?, ?, ?)",
         (g.user["profile_id"], name, phone, help_order),
@@ -352,6 +367,31 @@ def update_contact(contact_id):
         ok, help_order = help_order_field(data)
         if not ok:
             return error("invalid_help_order", "help_order must be a number from 1 to 10, or null.")
+        if help_order is not None:
+            occupying = db.execute(
+                "SELECT id FROM contacts WHERE profile_id = ? AND help_order = ? AND id != ?",
+                (g.user["profile_id"], help_order, contact_id),
+            ).fetchone()
+            if occupying:
+                if contact["help_order"] is not None:
+                    db.execute(
+                        "UPDATE contacts SET help_order = ? WHERE id = ? AND profile_id = ?",
+                        (contact["help_order"], occupying["id"], g.user["profile_id"]),
+                    )
+                else:
+                    priorities = db.execute(
+                        "SELECT id, help_order FROM contacts WHERE profile_id = ? AND help_order IS NOT NULL ORDER BY help_order, id",
+                        (g.user["profile_id"],),
+                    ).fetchall()
+                    if len(priorities) >= 10:
+                        return error("help_list_full", "A profile can have up to ten help contacts. Remove one before adding another.", 409)
+                    normalized = []
+                    for position, row in enumerate(priorities, start=1):
+                        db.execute("UPDATE contacts SET help_order = ? WHERE id = ?", (position, row["id"]))
+                        normalized.append((row["id"], position))
+                    for previous_id, position in reversed(normalized):
+                        if position >= help_order:
+                            db.execute("UPDATE contacts SET help_order = ? WHERE id = ?", (position + 1, previous_id))
     db.execute(
         "UPDATE contacts SET name = ?, phone = ?, help_order = ? WHERE id = ?", (name, phone, help_order, contact_id)
     )
@@ -538,7 +578,7 @@ def check_fatigue():
         local_hour = int(request.args.get("local_hour", ""))
     except ValueError:
         local_hour = -1
-    return jsonify(fatigue.assess(get_db(), current_profile(), local_hour))
+    return jsonify(fatigue.assess(get_db(), current_profile(), g.user["id"], local_hour))
 
 
 # ---------- Twinly ----------
