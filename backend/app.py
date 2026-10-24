@@ -1,50 +1,99 @@
-"""ReVoice backend: the only place the Twinly API key is used.
+"""ReVoice backend.
 
-The app (frontend) calls these /api/... routes, and this server forwards them
-to Twinly with the secret key. Twinly refuses requests made directly from a
-browser, so this server is required.
+- The only place the Twinly API key is used (Twinly refuses browser requests).
+- Stores profiles, settings, contacts, phrases and task history in a SQLite
+  database file (see db.py).
+- Handles logins for caregivers and patients (see auth.py).
 
 Run it with:  python app.py   (then it listens on port 5001)
 """
 
+import json
 import os
 import re
 
 import requests
-from flask import Flask, jsonify, request
+from flask import Flask, g, jsonify, request
 
-import twinly
+import twinly  # loads .env first, so the settings below can use it
+from auth import caregiver_required, create_token, hash_password, login_required, password_matches
+from db import close_db, get_db, init_db, new_join_code
 
 app = Flask(__name__)
+app.teardown_appcontext(close_db)
+init_db()
+
+JOB_ID_PATTERN = re.compile(r"^[A-Za-z0-9-]{1,100}$")
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+TILE_OPTIONS = {"call", "text", "phrases", "appointments"}
+MAX_TILES = 4
+VOICE_OPTIONS = {"female", "male", "personal"}
+TEXT_SIZES = {"medium", "large", "extra-large"}
 
 
 @app.after_request
 def allow_frontend(response):
     # Lets the frontend, which runs on a different port, call this server.
     response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     return response
 
-JOB_ID_PATTERN = re.compile(r"^[A-Za-z0-9-]{1,100}$")
 
+# ---------- small helpers ----------
 
 def error(code, message, status=400):
     return jsonify({"error": {"code": code, "message": message}}), status
 
 
-def forward(result):
-    status, body = result
-    return jsonify(body), status
-
-
 def body_json():
-    return request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
+    return data if isinstance(data, dict) else {}
 
 
-def text_field(data, name):
+def text_field(data, name, max_length=None):
     value = data.get(name)
-    return value.strip() if isinstance(value, str) else ""
+    value = value.strip() if isinstance(value, str) else ""
+    if max_length is not None:
+        value = value[:max_length]
+    return value
+
+
+def user_json(user):
+    return {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}
+
+
+def profile_json(profile):
+    return {
+        "id": profile["id"],
+        "name": profile["name"],
+        "join_code": profile["join_code"],
+        "dwell_ms": profile["dwell_ms"],
+        "voice": profile["voice"],
+        "voice_speed": profile["voice_speed"],
+        "text_size": profile["text_size"],
+        "tiles": json.loads(profile["tiles"]),
+    }
+
+
+def current_profile():
+    return get_db().execute(
+        "SELECT * FROM profiles WHERE id = ?", (g.user["profile_id"],)
+    ).fetchone()
+
+
+def forward(result, kind=None, summary=None):
+    """Send Twinly's answer back to the app, and log new jobs to history."""
+    status, body = result
+    if kind and status in (200, 202) and isinstance(body, dict) and body.get("id"):
+        db = get_db()
+        db.execute(
+            "INSERT INTO task_history (profile_id, user_id, kind, summary, job_id) VALUES (?, ?, ?, ?, ?)",
+            (g.user["profile_id"], g.user["id"], kind, summary[:200], body["id"]),
+        )
+        db.commit()
+    return jsonify(body), status
 
 
 @app.errorhandler(twinly.MissingKeyError)
@@ -59,32 +108,274 @@ def twinly_unreachable(exc):
 
 @app.get("/api/health")
 def health():
-    """Quick check that this server is running. Doesn't contact Twinly."""
+    """Quick check that this server is running. No login needed."""
     return jsonify({"ok": True})
 
 
+# ---------- accounts ----------
+
+@app.post("/api/auth/signup")
+def signup():
+    """Make an account.
+
+    To start a new patient profile:  {"email", "password", "name", "role", "profile_name"}
+    To join an existing one:         {"email", "password", "name", "role", "join_code"}
+    role is "caregiver" or "patient".
+    """
+    data = body_json()
+    email = text_field(data, "email").lower()
+    password = data.get("password") if isinstance(data.get("password"), str) else ""
+    name = text_field(data, "name", 80)
+    role = text_field(data, "role")
+    join_code = text_field(data, "join_code").upper()
+    profile_name = text_field(data, "profile_name", 80)
+
+    if not EMAIL_PATTERN.match(email):
+        return error("invalid_email", "Enter a valid email address.")
+    if len(password) < 8:
+        return error("weak_password", "Passwords need at least 8 characters.")
+    if not name:
+        return error("missing_name", "Enter your name.")
+    if role not in ("caregiver", "patient"):
+        return error("invalid_role", "Role must be 'caregiver' or 'patient'.")
+
+    db = get_db()
+    if db.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone():
+        return error("email_taken", "There's already an account with that email.", 409)
+
+    if join_code:
+        profile = db.execute("SELECT * FROM profiles WHERE join_code = ?", (join_code,)).fetchone()
+        if profile is None:
+            return error("invalid_join_code", "That join code doesn't match any profile.", 404)
+        profile_id = profile["id"]
+    elif profile_name:
+        cursor = db.execute(
+            "INSERT INTO profiles (name, join_code) VALUES (?, ?)", (profile_name, new_join_code())
+        )
+        profile_id = cursor.lastrowid
+    else:
+        return error(
+            "missing_profile",
+            "Send 'profile_name' to start a new patient profile, or 'join_code' to join one.",
+        )
+
+    cursor = db.execute(
+        "INSERT INTO users (email, password_hash, name, role, profile_id) VALUES (?, ?, ?, ?, ?)",
+        (email, hash_password(password), name, role, profile_id),
+    )
+    db.commit()
+    user = db.execute("SELECT * FROM users WHERE id = ?", (cursor.lastrowid,)).fetchone()
+    profile = db.execute("SELECT * FROM profiles WHERE id = ?", (profile_id,)).fetchone()
+    return jsonify(
+        {"token": create_token(user["id"]), "user": user_json(user), "profile": profile_json(profile)}
+    ), 201
+
+
+@app.post("/api/auth/login")
+def login():
+    """Log in with {"email", "password"}. Returns a token for later requests."""
+    data = body_json()
+    email = text_field(data, "email").lower()
+    password = data.get("password") if isinstance(data.get("password"), str) else ""
+    db = get_db()
+    user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    if user is None or not password_matches(user["password_hash"], password):
+        return error("wrong_login", "Email or password is incorrect.", 401)
+    profile = db.execute("SELECT * FROM profiles WHERE id = ?", (user["profile_id"],)).fetchone()
+    return jsonify(
+        {"token": create_token(user["id"]), "user": user_json(user), "profile": profile_json(profile)}
+    )
+
+
+@app.get("/api/auth/me")
+@login_required
+def me():
+    """Who is logged in, and their patient profile."""
+    return jsonify({"user": user_json(g.user), "profile": profile_json(current_profile())})
+
+
+# ---------- profile, dashboard and settings ----------
+
+@app.get("/api/profile")
+@login_required
+def get_profile():
+    return jsonify(profile_json(current_profile()))
+
+
+@app.put("/api/profile")
+@caregiver_required
+def update_profile():
+    """Change any of: name, dwell_ms, voice, voice_speed, text_size, tiles."""
+    data = body_json()
+    changes = {}
+
+    if "name" in data:
+        name = text_field(data, "name", 80)
+        if not name:
+            return error("invalid_name", "Name can't be empty.")
+        changes["name"] = name
+    if "dwell_ms" in data:
+        value = data["dwell_ms"]
+        if not isinstance(value, int) or isinstance(value, bool) or not 500 <= value <= 5000:
+            return error("invalid_dwell_ms", "dwell_ms must be a whole number from 500 to 5000.")
+        changes["dwell_ms"] = value
+    if "voice" in data:
+        if data["voice"] not in VOICE_OPTIONS:
+            return error("invalid_voice", "voice must be 'female', 'male', or 'personal'.")
+        changes["voice"] = data["voice"]
+    if "voice_speed" in data:
+        value = data["voice_speed"]
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not 0.5 <= value <= 2.0:
+            return error("invalid_voice_speed", "voice_speed must be from 0.5 to 2.0.")
+        changes["voice_speed"] = float(value)
+    if "text_size" in data:
+        if data["text_size"] not in TEXT_SIZES:
+            return error("invalid_text_size", "text_size must be 'medium', 'large', or 'extra-large'.")
+        changes["text_size"] = data["text_size"]
+    if "tiles" in data:
+        tiles = data["tiles"]
+        if (
+            not isinstance(tiles, list)
+            or not 1 <= len(tiles) <= MAX_TILES
+            or len(set(tiles)) != len(tiles)
+            or any(tile not in TILE_OPTIONS for tile in tiles)
+        ):
+            return error(
+                "invalid_tiles",
+                f"tiles must be 1 to {MAX_TILES} different choices from: "
+                + ", ".join(sorted(TILE_OPTIONS)),
+            )
+        changes["tiles"] = json.dumps(tiles)
+
+    if changes:
+        columns = ", ".join(f"{column} = ?" for column in changes)  # names come from the checks above
+        db = get_db()
+        db.execute(f"UPDATE profiles SET {columns} WHERE id = ?", (*changes.values(), g.user["profile_id"]))
+        db.commit()
+    return jsonify(profile_json(current_profile()))
+
+
+# ---------- contacts ----------
+
+@app.get("/api/contacts")
+@login_required
+def list_contacts():
+    rows = get_db().execute(
+        "SELECT id, name, phone FROM contacts WHERE profile_id = ? ORDER BY name", (g.user["profile_id"],)
+    ).fetchall()
+    return jsonify([dict(row) for row in rows])
+
+
+@app.post("/api/contacts")
+@caregiver_required
+def add_contact():
+    """Add {"name": "Mom", "phone": "+13525550100"}."""
+    data = body_json()
+    name, phone = text_field(data, "name", 80), text_field(data, "phone", 40)
+    if not name or not phone:
+        return error("missing_fields", "Send both 'name' and 'phone'.")
+    db = get_db()
+    cursor = db.execute(
+        "INSERT INTO contacts (profile_id, name, phone) VALUES (?, ?, ?)", (g.user["profile_id"], name, phone)
+    )
+    db.commit()
+    return jsonify({"id": cursor.lastrowid, "name": name, "phone": phone}), 201
+
+
+@app.delete("/api/contacts/<int:contact_id>")
+@caregiver_required
+def delete_contact(contact_id):
+    db = get_db()
+    cursor = db.execute(
+        "DELETE FROM contacts WHERE id = ? AND profile_id = ?", (contact_id, g.user["profile_id"])
+    )
+    db.commit()
+    if cursor.rowcount == 0:
+        return error("not_found", "No such contact.", 404)
+    return jsonify({"deleted": contact_id})
+
+
+# ---------- quick phrases ----------
+
+@app.get("/api/phrases")
+@login_required
+def list_phrases():
+    rows = get_db().execute(
+        "SELECT id, text FROM phrases WHERE profile_id = ? ORDER BY id", (g.user["profile_id"],)
+    ).fetchall()
+    return jsonify([dict(row) for row in rows])
+
+
+@app.post("/api/phrases")
+@caregiver_required
+def add_phrase():
+    """Add {"text": "I'm thirsty"}."""
+    text = text_field(body_json(), "text", 200)
+    if not text:
+        return error("missing_text", "Send the phrase 'text'.")
+    db = get_db()
+    cursor = db.execute("INSERT INTO phrases (profile_id, text) VALUES (?, ?)", (g.user["profile_id"], text))
+    db.commit()
+    return jsonify({"id": cursor.lastrowid, "text": text}), 201
+
+
+@app.delete("/api/phrases/<int:phrase_id>")
+@caregiver_required
+def delete_phrase(phrase_id):
+    db = get_db()
+    cursor = db.execute(
+        "DELETE FROM phrases WHERE id = ? AND profile_id = ?", (phrase_id, g.user["profile_id"])
+    )
+    db.commit()
+    if cursor.rowcount == 0:
+        return error("not_found", "No such phrase.", 404)
+    return jsonify({"deleted": phrase_id})
+
+
+# ---------- task history ----------
+
+@app.get("/api/history")
+@login_required
+def history():
+    """The 50 most recent things Twinly was asked to do for this patient."""
+    rows = get_db().execute(
+        """SELECT task_history.id, kind, summary, job_id, task_history.created_at, users.name AS asked_by
+           FROM task_history JOIN users ON users.id = task_history.user_id
+           WHERE task_history.profile_id = ?
+           ORDER BY task_history.id DESC LIMIT 50""",
+        (g.user["profile_id"],),
+    ).fetchall()
+    return jsonify([dict(row) for row in rows])
+
+
+# ---------- Twinly ----------
+
 @app.get("/api/status")
+@login_required
 def status():
     """Is the Mac with Twinly online, and what is this key allowed to do?"""
     return forward(twinly.me())
 
 
 @app.get("/api/usage")
+@login_required
 def usage():
     return forward(twinly.usage())
 
 
 @app.post("/api/tasks")
+@login_required
 def create_task():
     """Start a task, e.g. {"prompt": "Read me the subject of my newest email"}."""
     data = body_json()
     prompt = text_field(data, "prompt")
     if not prompt:
         return error("missing_prompt", "Send a 'prompt' describing the task.")
-    return forward(twinly.create_task(prompt, data.get("output_schema")))
+    return forward(twinly.create_task(prompt, data.get("output_schema")), "task", prompt)
 
 
 @app.post("/api/messages")
+@login_required
 def send_message():
     """Send a text. The user must have confirmed it on screen first."""
     data = body_json()
@@ -96,10 +387,11 @@ def send_message():
             "confirmation_required",
             "Texts send immediately. Show the user a confirmation and pass \"confirmed\": true.",
         )
-    return forward(twinly.send_message(to, text))
+    return forward(twinly.send_message(to, text), "message", f"Text to {to}: {text}")
 
 
 @app.post("/api/calls")
+@login_required
 def place_call():
     """Place a phone call. The user must have confirmed it on screen first."""
     data = body_json()
@@ -111,19 +403,23 @@ def place_call():
             "confirmation_required",
             "Calls start right away. Show the user a confirmation and pass \"confirmed\": true.",
         )
-    return forward(twinly.place_call(to, goal, text_field(data, "say") or None))
+    return forward(
+        twinly.place_call(to, goal, text_field(data, "say") or None), "call", f"Call to {to}: {goal}"
+    )
 
 
 @app.post("/api/speak")
+@login_required
 def speak():
     """Say a phrase in the user's own voice. Returns a job with audio when done."""
     text = text_field(body_json(), "text")
     if not text:
         return error("missing_text", "Send the 'text' to speak.")
-    return forward(twinly.speak(text))
+    return forward(twinly.speak(text), "speak", text)
 
 
 @app.get("/api/jobs/<job_id>")
+@login_required
 def get_job(job_id):
     """Check on a job. Add ?wait=25 to wait for it to change (max 25 seconds)."""
     if not JOB_ID_PATTERN.match(job_id):
@@ -136,6 +432,7 @@ def get_job(job_id):
 
 
 @app.post("/api/jobs/<job_id>/cancel")
+@login_required
 def cancel_job(job_id):
     if not JOB_ID_PATTERN.match(job_id):
         return error("invalid_job_id", "That doesn't look like a job id.")

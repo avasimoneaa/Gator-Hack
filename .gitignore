@@ -24,3 +24,7 @@ npm-debug.log*
 .vscode/*
 !.vscode/extensions.json
 .idea/
+
+# Database files (people's data stays on the server)
+*.db
+*.sqlite3
