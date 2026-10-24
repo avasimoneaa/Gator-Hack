@@ -1,0 +1,104 @@
+* {
+  box-sizing: border-box;
+}
+:root {
+  font-family: system-ui, "Segoe UI", sans-serif;
+  color: #171321;
+  background: #f7f5fa;
+}
+body { margin: 0; min-width: 320px; }
+button, input { font: inherit; }
+#app { min-height: 100vh; padding: clamp(20px, 4vw, 56px); }
+main { width: min(100%, 900px); margin: 0 auto; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+h1 { margin: 0 0 8px; font-size: clamp(2rem, 5vw, 3.4rem); line-height: 1.1; }
+h2 { margin: 0 0 12px; font-size: clamp(1.6rem, 4vw, 2.4rem); line-height: 1.2; }
+p { font-size: 1.2rem; line-height: 1.5; }
+.eyebrow, .step-label { margin: 0 0 8px; color: #57227d; font-size: 1rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.intro { margin: 0; }
+button { min-height: 72px; padding: 16px 24px; border: 3px solid #5b2388; border-radius: 18px; background: #fff; color: #241133; font-size: 1.35rem; font-weight: 750; cursor: pointer; }
+button:disabled { cursor: wait; opacity: .7; }
+button:focus-visible, input:focus-visible { outline: 5px solid #ffbf47; outline-offset: 4px; }
+.primary { width: 100%; min-height: 104px; background: #5b2388; color: #fff; font-size: 1.6rem; }
+.secondary { width: 100%; background: #fff; }
+#start-camera { width: min(100%, 260px); min-height: 88px; }
+.tracker { position: sticky; top: 0; z-index: 50; display: grid; grid-template-columns: 1fr 1fr auto; align-items: center; gap: 12px; margin: 0 -12px 24px; padding: 12px; background: #f5eff9; border-bottom: 2px solid #ded4e6; box-shadow: 0 4px 14px rgb(35 15 50 / 8%); }
+.tracker p, .feedback { margin: 0; padding: 12px 16px; border-radius: 12px; background: #fff; font-size: 1rem; }
+.panel { padding: clamp(20px, 4vw, 36px); border: 2px solid #e2d9e9; border-radius: 24px; background: #fff; box-shadow: 0 8px 28px rgb(35 15 50 / 8%); }
+.panel > p { margin: 12px 0; }
+form { display: grid; gap: 18px; margin: 24px 0 12px; }
+label { display: grid; gap: 8px; font-size: 1.1rem; font-weight: 700; }
+input { width: 100%; min-height: 64px; padding: 12px 16px; border: 2px solid #82758b; border-radius: 12px; color: #171321; background: #fff; font-size: 1.2rem; }
+.gaze-action { transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease; }
+.gaze-action.dwell-active { background: #e8d5fa; border-color: #a335e8; box-shadow: inset 0 0 0 5px #a335e8; color: #241133; }
+.task-card { display: flex; width: 100%; min-height: 150px; align-items: center; gap: 22px; margin: 24px 0; text-align: left; }
+.card-icon { flex: 0 0 auto; font-size: 3rem; }
+.task-card strong, .task-card small { display: block; }
+.task-card strong { margin-bottom: 8px; font-size: 1.45rem; }
+.task-card small { font-size: 1.05rem; font-weight: 500; line-height: 1.4; }
+.review-card, .result-card { margin: 20px 0; padding: 20px; border: 2px solid #d8c7e5; border-radius: 16px; background: #faf7fc; font-size: 1.25rem; line-height: 1.5; overflow-wrap: anywhere; }
+.review-card p { margin-bottom: 0; }
+.button-stack { display: grid; gap: 20px; margin-top: 24px; }
+.assist-controls { display: grid; grid-template-columns: 1fr; gap: 16px; margin: 24px 0 16px; }
+.assist-controls button { min-height: 96px; }
+.text-button { min-height: 72px; margin-top: 8px; border-color: transparent; color: #57227d; text-decoration: underline; }
+.sign-out { margin-top: 8px; }
+.feedback { min-height: 52px; border: 2px solid #ded4e6; }
+@media (max-width: 700px) {
+  header { align-items: stretch; flex-direction: column; }
+  #start-camera { width: 100%; }
+  .tracker, .assist-controls { grid-template-columns: 1fr; }
+  .task-card { align-items: flex-start; }
+}
+
+
+
+
+
+.contact-setup { margin: 20px 0; padding: 20px; border: 2px dashed #9c7baa; border-radius: 16px; }
+.contact-setup h3 { margin-top: 0; }
+.compose-panel h3 { margin: 28px 0 12px; font-size: 1.35rem; }
+.choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin: 12px 0 22px; }
+.choice { min-height: 96px; padding: 18px; border-color: #6d4b7d; text-align: center; }
+.choice.choice-selected { border-color: #4d176f; background: #f1e3fc; box-shadow: inset 0 0 0 4px #8a42b5; }
+.draft-card { margin: 22px 0; padding: clamp(24px, 5vw, 44px); border: 3px solid #7a38a5; border-radius: 20px; background: #fbf6ff; color: #21102d; font-size: clamp(1.5rem, 4vw, 2.25rem); font-weight: 700; line-height: 1.4; }
+.message-result-note { font-weight: 700; }
+@media (max-width: 700px) { .choice-grid { grid-template-columns: 1fr; } }
+
+.voice-button { margin: 16px 0 4px; }
+.voice-note { margin: 8px 0 16px; color: #473a50; font-size: 1rem; }
+
+.calibration-panel { max-width: 760px; margin: 0 auto; }
+.calibration-panel .primary, .calibration-panel .secondary { margin-top: 16px; }
+.calibration-message { padding: 14px 18px; border-radius: 12px; background: #fff3d6; color: #4a3210; }
+.calibration-overlay { position: fixed; inset: 0; z-index: 1000; background: #fff; }
+.calibration-hud { position: absolute; top: 12px; left: 50%; width: min(560px, calc(100vw - 32px)); transform: translateX(-50%); padding: 10px 16px; border: 2px solid #d8c7e5; border-radius: 14px; background: #fff; text-align: center; box-shadow: 0 4px 20px rgb(35 15 50 / 12%); }
+.calibration-hud p { margin: 0; font-size: 1rem; font-weight: 700; }
+.calibration-dot { position: absolute; width: 42px; height: 42px; transform: translate(-50%, -50%); border: 6px solid #fff; border-radius: 50%; background: #080808; box-shadow: 0 0 0 3px #5b2388, 0 3px 12px rgb(0 0 0 / 24%); }
+
+/* A visible, non-interactive marker shows the smoothed gaze estimate. */
+#gaze-cursor {
+  position: fixed;
+  z-index: 1100;
+  left: -100px;
+  top: -100px;
+  width: 30px;
+  height: 30px;
+  border: 4px solid #fff;
+  border-radius: 50%;
+  background: #ff3158;
+  box-shadow: 0 0 0 3px #171321, 0 0 16px rgb(255 49 88 / 75%);
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+#gaze-cursor.visible { opacity: 1; }
+.scroll-hint { margin: 0 0 16px; color: #473a50; font-size: 1rem; text-align: center; }
+
+.email-list { display: grid; gap: 18px; margin: 22px 0; }
+.email-item { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-height: 100px; padding: 22px; text-align: left; }
+.email-item strong { font-size: 1.25rem; }
+.email-item span, .email-item small { color: #473a50; }
+
+.recalibrate-button { min-height: 72px; white-space: nowrap; }
