@@ -1,6 +1,6 @@
 # ReVoice
 
-An eye-gaze assistant that lets people with ALS and other severe mobility limitations get things done on a computer — make calls, send texts, book appointments, and speak saved phrases — using only their eyes. ReVoice sends tasks to Twinly, a desktop AI agent, and reads its progress and results aloud, so the user doesn't even need to see the screen.
+An eye-gaze assistant for people with disabilities that limit movement or speech (such as ALS, spinal cord injury, cerebral palsy, muscular dystrophy, or stroke) that lets them get things done on a computer — make calls, send texts, book appointments, and speak saved phrases — using only their eyes. ReVoice sends tasks to Twinly, a desktop AI agent, and reads its progress and results aloud, so the user doesn't even need to see the screen.
 
 Built for **Gator Hack 2026**.
 

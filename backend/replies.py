@@ -40,8 +40,8 @@ def build_messages(patient_name, heard, typed, conversation, count, saved_phrase
         lines.append(f"Other person: {heard}")
 
     rules = [
-        f"You help {patient_name} answer in a conversation. {patient_name} has ALS, "
-        "cannot speak, and picks replies with their eyes, so every suggestion saves them a lot of effort.",
+        f"You help {patient_name} answer in a conversation. {patient_name} has a disability that makes "
+        "speaking or typing hard and picks replies with their eyes, so every suggestion saves them a lot of effort.",
         f"Suggest exactly {count} replies {patient_name} could say next, in first person, as {patient_name}.",
         "Keep each reply short (under 15 words), natural and warm, like a real person talking, not a robot.",
         "Make them meaningfully different: for example one yes/positive, one no/alternative, "
