@@ -34,3 +34,6 @@ backend/ml/data/raw/
 
 # Downloaded GazeTypeBD gaze recordings are reproducible from the public dataset
 backend/ml/data/gazetypebd/
+
+# Figma Make export (design reference only)
+figma-make/
