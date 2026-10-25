@@ -25,6 +25,7 @@ Caregivers and family can customize the dashboard (up to 4 tiles at a time), con
 - **Twinly** — desktop AI agent that performs tasks on the user's computer
 - **Figma Make** — interface design and prototype
 - **Gemma 4 E2B** — locally run language model that maps spoken requests to the app's allowlisted tasks; users review and confirm by gaze before Twinly runs one
+- **MCFW-Gaze (2026)** — recent public gaze dataset used to train an experimental gaze-mode classifier; an optional dwell assist can add up to 0.5 seconds when the gaze pattern resembles free viewing. This prototype is not validated for ALS users or webcam accuracy; details and reproduction steps are in `backend/ml/README.md`.
 - **WebGazer** — webcam-based gaze estimation and dwell selection
 - **Browser speech recognition and text-to-speech** — spoken requests and accessible progress updates
 - **Human** — on-device face matching for patient and caregiver sign-in

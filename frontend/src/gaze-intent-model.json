@@ -1,0 +1,123 @@
+{
+  "model_type": "standardized_logistic_regression",
+  "model_version": 2,
+  "features": [
+    "std_x",
+    "std_y",
+    "path_speed",
+    "mean_x",
+    "mean_y"
+  ],
+  "means": [
+    0.05410332849792287,
+    0.08573701811483157,
+    1.4716204299883016,
+    0.5049542308601451,
+    0.4282703920819143
+  ],
+  "scales": [
+    0.05325838622357531,
+    0.07005440293633029,
+    0.8984678496150695,
+    0.11416371773094307,
+    0.14089894876402448
+  ],
+  "weights": [
+    0.6820193147450008,
+    -0.6274630761120049,
+    0.6876048524382447,
+    -0.4938540259136395,
+    0.7526684970151895,
+    0.34840016558685866
+  ],
+  "classes": {
+    "0": "natural_image_viewing",
+    "1": "structured_gaze_task"
+  },
+  "threshold": 0.5,
+  "provenance": "MCFW-Gaze (Zenodo DOI 10.5281/zenodo.18725479; CC BY 4.0) and GazeTypeBD (Mendeley DOI 10.17632/4m2pm5hp9j.1; CC BY 4.0). GazeTypeBD windows are sampled by participant and split participant-disjoint.",
+  "evaluation": {
+    "mcfw_train_participants": [
+      "participant_002",
+      "participant_004",
+      "participant_005",
+      "participant_008",
+      "participant_009",
+      "participant_010",
+      "participant_012",
+      "participant_013",
+      "participant_014",
+      "participant_015"
+    ],
+    "mcfw_held_out_participants": [
+      "participant_001",
+      "participant_003",
+      "participant_006",
+      "participant_007",
+      "participant_011"
+    ],
+    "gazetype_train_participants": [
+      "P001",
+      "P002",
+      "P003",
+      "P005",
+      "P006",
+      "P007",
+      "P009",
+      "P010",
+      "P011",
+      "P015",
+      "P016",
+      "P017",
+      "P020",
+      "P022",
+      "P023",
+      "P024",
+      "P026",
+      "P027",
+      "P028",
+      "P030",
+      "P031",
+      "P032",
+      "P033",
+      "P034",
+      "P035",
+      "P036",
+      "P037",
+      "P038",
+      "P041"
+    ],
+    "gazetype_held_out_participants": [
+      "P004",
+      "P008",
+      "P012",
+      "P013",
+      "P014",
+      "P018",
+      "P019",
+      "P021",
+      "P025",
+      "P029",
+      "P039",
+      "P040"
+    ],
+    "mcfw_windows_train": 114,
+    "gazetype_windows_train": 348,
+    "mcfw_windows_held_out": 62,
+    "gazetype_windows_held_out": 144,
+    "mcfw_held_out_balanced_accuracy": 0.8194594594594595,
+    "mcfw_previous_model_balanced_accuracy_same_holdout": 0.825945945945946,
+    "mcfw_confusion": {
+      "tp": 34,
+      "tn": 18,
+      "fp": 7,
+      "fn": 3
+    },
+    "gazetype_previous_model_extra_delay_rate_below_0_35": 0.5138888888888888,
+    "gazetype_previous_model_extra_delay_rate_below_0_20": 0.4027777777777778,
+    "gazetype_updated_model_extra_delay_rate_below_0_35": 0.3541666666666667,
+    "gazetype_updated_model_extra_delay_rate_below_0_20": 0.2361111111111111,
+    "mcfw_held_out_structured_below_0_20_rate": 0.0
+  },
+  "limitations": "GazeTypeBD contributes task-focused webcam typing examples but no ReVoice button-choice labels. Lower extra-delay rate on held-out typing windows suggests fewer slowdowns for this dataset; it does not establish ReVoice selection accuracy, intent recognition, or performance for AAC users. MCFW test set is small and Tobii-based."
+}

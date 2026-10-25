@@ -158,3 +158,17 @@ audio { width: 100%; margin: 20px 0; }
 .simulation-banner { margin: 20px 0; padding: 18px 20px; border: 3px solid #9b2424; border-radius: 14px; background: #fff0ef; color: #681515; font-size: 1.2rem; line-height: 1.5; }
 .emergency-confirm { background: #8b1e1e; border-color: #681515; }
 .emergency-confirm.dwell-active { background: #f5c5c2; color: #241133; }
+
+/* Accessible in-app communications, draft choices, and task activity. */
+.draft-options, .message-thread, .activity-list { display: grid; gap: 16px; margin: 20px 0; }
+.draft-option { display: grid; gap: 12px; width: 100%; min-height: 112px; text-align: left; }
+.draft-option strong { color: #57227d; font-size: 1rem; }
+.draft-option span { font-size: 1.2rem; line-height: 1.45; }
+.thread-message, .activity-item { padding: 18px; border: 2px solid #e2d9e9; border-radius: 16px; background: #faf7fc; }
+.thread-message p, .activity-item p { margin: 8px 0; overflow-wrap: anywhere; }
+.thread-message small, .activity-item small { color: #51445a; }
+.activity-item button { margin-top: 12px; }
+#browser-request { width: 100%; min-height: 140px; padding: 14px; border: 2px solid #82758b; border-radius: 12px; font: inherit; font-size: 1.15rem; }
+
+.ml-gaze-toggle[aria-pressed="true"] { border-color: #7430a2; background: #f1e3fc; color: #271334; }
+.ml-gaze-note { display: block; color: #51445a; font-size: .85rem; line-height: 1.3; }

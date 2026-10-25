@@ -94,7 +94,7 @@ Twinly's docs: https://www.twinly.tech/docs/developer-api
 | `GET /api/fatigue?local_hour=20` | How tired does the user seem? Suggested settings | — |
 | `GET /api/status` | Is the Mac online? What can the key do? | — |
 | `GET /api/usage` | Prompts / usage left | — |
-| `POST /api/tasks` | Do something on the Mac ("read my newest email") | `{"prompt": "..."}` |
+| `POST /api/tasks` | Ask Twinly to read email/calendar or work in the browser | `{"prompt": "..."}` |
 | `POST /api/messages` | Send a text | `{"to": "Mom", "text": "...", "confirmed": true}` |
 | `POST /api/calls` | Phone someone in the user's voice | `{"to": "...", "goal": "...", "confirmed": true}` |
 | `POST /api/speak` | Say a phrase in the user's own voice | `{"text": "..."}` |
@@ -142,3 +142,6 @@ Every few minutes the app sends `POST /api/gaze-stats`:
 - **Speaking in the user's voice** needs a recorded voice in the Twinly app first.
 - Twinly's Mac must be on, awake, and running Twinly, or jobs fail with `twinly_offline`.
 - Before putting this server on the public internet (e.g. Fly.io), set a real `SECRET_KEY`.
+
+
+Caregivers connect accounts in Twinly on the computer where it runs; ReVoice does not collect their app passwords. The dashboard can show Twinly-read email and calendar information, recent messages for saved contacts, and ReVoice-started call/task history. The current API does not expose a complete external incoming-call feed. Uber/Lyft requests use the caregiver-selected provider and require a staged trip summary plus patient confirmation before Twinly orders anything.

@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS profiles (
     voice_speed REAL    NOT NULL DEFAULT 1.0,
     text_size   TEXT    NOT NULL DEFAULT 'large',
     tiles       TEXT    NOT NULL DEFAULT '["call", "text", "phrases", "appointments"]',
+    ride_provider TEXT  NOT NULL DEFAULT 'none', -- none, uber, or lyft
     created_at  TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -125,7 +126,7 @@ def close_db(_error=None):
 # Columns added after the first version. Older database files get them
 # added automatically, so nobody has to delete their data.
 NEW_COLUMNS = {
-    "profiles": {"fatigue_mode": "INTEGER NOT NULL DEFAULT 1"},
+    "profiles": {"fatigue_mode": "INTEGER NOT NULL DEFAULT 1", "ride_provider": "TEXT NOT NULL DEFAULT 'none'"},
     "contacts": {"help_order": "INTEGER"},  # 1 = text first in an emergency; empty = not a help contact
 }
 
