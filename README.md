@@ -33,11 +33,15 @@ Caregivers and family can customize the dashboard (up to 4 tiles at a time), con
 1. Copy `.env.example` to a new file named `.env`.
 2. Put your own Twinly API key in `.env`. **Never commit `.env`** — it's already listed in `.gitignore`.
 
-More setup steps will be added as the frontend and backend are built.
+See `backend/README.md` and `frontend/README.md` for full setup steps.
 
 ## Team
 
+- Aditya Chhabria
+- Lilly Liu
+- Aaron Ghosh
 - Ava Aguilar
+
 ## Shared-device face sign-in
 
 The caregiver account signs into the backend first. ReVoice then runs gaze calibration and lets the caregiver enroll a patient face, caregiver face, or both. After enrollment, either person can use the camera to return to the portal. Patient sign-out returns to face sign-in while keeping this browser session available. The caregiver sign-out control requires the caregiver password and revokes that browser session.
