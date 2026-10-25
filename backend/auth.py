@@ -1,4 +1,4 @@
-"""Logins for ReVoice.
+"""Logins for iSpeak.
 
 - Passwords are hashed (scrambled one-way) before they're saved.
 - Logging in gives the app a token. The app sends it on every request as

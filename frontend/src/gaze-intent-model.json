@@ -119,5 +119,5 @@
     "gazetype_updated_model_extra_delay_rate_below_0_20": 0.2361111111111111,
     "mcfw_held_out_structured_below_0_20_rate": 0.0
   },
-  "limitations": "GazeTypeBD contributes task-focused webcam typing examples but no ReVoice button-choice labels. Lower extra-delay rate on held-out typing windows suggests fewer slowdowns for this dataset; it does not establish ReVoice selection accuracy, intent recognition, or performance for AAC users. MCFW test set is small and Tobii-based."
+  "limitations": "GazeTypeBD contributes task-focused webcam typing examples but no iSpeak button-choice labels. Lower extra-delay rate on held-out typing windows suggests fewer slowdowns for this dataset; it does not establish iSpeak selection accuracy, intent recognition, or performance for AAC users. MCFW test set is small and Tobii-based."
 }

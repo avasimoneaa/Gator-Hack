@@ -1,4 +1,4 @@
-"""The ReVoice database.
+"""The iSpeak database.
 
 It's SQLite: the whole database is one file (revoice.db) next to this code.
 Python has SQLite built in, so there's nothing to install or sign up for.

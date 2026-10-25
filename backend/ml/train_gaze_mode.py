@@ -215,7 +215,7 @@ def main():
                        "gazetype_updated_model_extra_delay_rate_below_0_35": new_delay_rate,
                        "gazetype_updated_model_extra_delay_rate_below_0_20": new_delay_rate_020,
                        "mcfw_held_out_structured_below_0_20_rate": mcfw_structured_delay_rate_020},
-        "limitations": "GazeTypeBD contributes task-focused webcam typing examples but no ReVoice button-choice labels. Lower extra-delay rate on held-out typing windows suggests fewer slowdowns for this dataset; it does not establish ReVoice selection accuracy, intent recognition, or performance for AAC users. MCFW test set is small and Tobii-based."
+        "limitations": "GazeTypeBD contributes task-focused webcam typing examples but no iSpeak button-choice labels. Lower extra-delay rate on held-out typing windows suggests fewer slowdowns for this dataset; it does not establish iSpeak selection accuracy, intent recognition, or performance for AAC users. MCFW test set is small and Tobii-based."
     }
     MODEL_OUT.write_text(json.dumps(model, indent=2), encoding="utf-8")
     print(f"Training windows: {len(training_rows)} total ({len(mcfw_train)} MCFW + {len(gazetype_train)} GazeTypeBD)")

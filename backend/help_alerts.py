@@ -92,7 +92,7 @@ def _text_next_contact(alert, patient_name):
         contact = alert["contacts"][alert["next_index"]]
         alert["next_index"] += 1
         message = (
-            f"ReVoice alert: {patient_name} needs help right now. "
+            f"iSpeak alert: {patient_name} needs help right now. "
             f"Please reply to this text so {patient_name} knows you're coming."
         )
         sent_at = _now()
@@ -222,7 +222,7 @@ def cancel(db, alert, patient_name):
                 pass
         elif person.get("ok"):
             try:
-                twinly.send_message(person["phone"], f"Update from ReVoice: false alarm, {patient_name} is OK. Thank you!")
+                twinly.send_message(person["phone"], f"Update from iSpeak: false alarm, {patient_name} is OK. Thank you!")
             except requests.RequestException:
                 pass
     alert["status"] = "canceled"

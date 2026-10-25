@@ -1,4 +1,4 @@
-"""ReVoice backend.
+"""iSpeak backend.
 
 - The only place the Twinly API key is used (Twinly refuses browser requests).
 - Stores profiles, settings, contacts, phrases and task history in a SQLite
@@ -93,7 +93,7 @@ def current_profile():
 def forward(result, kind=None, summary=None):
     """Send Twinly's answer back to the app, and log new jobs to history."""
     status, body = result
-    # A Twinly 401 is not a ReVoice session failure. Keep it distinct so the
+    # A Twinly 401 is not a iSpeak session failure. Keep it distinct so the
     # frontend does not erase the user's valid login when Twinly rejects a key.
     if status == 401:
         return error(
@@ -736,7 +736,7 @@ def compose_message():
     except requests.Timeout:
         return error("gemma_timeout", "Gemma took too long to prepare the message. Try again.", 504)
     except requests.ConnectionError:
-        return error("gemma_unavailable", "Gemma is unavailable. Start Ollama on the ReVoice computer and try again.", 503)
+        return error("gemma_unavailable", "Gemma is unavailable. Start Ollama on the iSpeak computer and try again.", 503)
     except requests.RequestException as exc:
         app.logger.warning("Gemma message composition failed: %s", type(exc).__name__)
         return error("gemma_unavailable", "Gemma could not prepare the message. Try again.", 502)
@@ -934,7 +934,7 @@ def get_job(job_id):
     if not JOB_ID_PATTERN.match(job_id):
         return error("invalid_job_id", "That doesn't look like a job id.")
     # Twinly job IDs are not scoped to an account. Only expose jobs created
-    # through this ReVoice profile so another logged-in family can't inspect
+    # through this iSpeak profile so another logged-in family can't inspect
     # or cancel a different profile's work by guessing an ID.
     owned = get_db().execute(
         "SELECT 1 FROM task_history WHERE profile_id = ? AND job_id = ?",

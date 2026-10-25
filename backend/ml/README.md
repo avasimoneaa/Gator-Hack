@@ -7,7 +7,7 @@ This optional hackathon feature estimates whether recent gaze resembles a focuse
 - **MCFW-Gaze** (released February 21, 2026; CC BY 4.0): 15 Tobii Pro Fusion participants, including password-entry and natural-image viewing tasks. [Dataset and citation](https://doi.org/10.5281/zenodo.18725479).
 - **GazeTypeBD** (released October 8, 2026; CC BY 4.0): 41 participants using WebGazer webcam tracking during eye typing. The trainer samples at most 12 one-second windows per participant, normalizes screen coordinates using the dataset's calibration-grid bounds, and keeps participants separate between training and evaluation. [Dataset](https://data.mendeley.com/datasets/4m2pm5hp9j/1).
 
-GazeTypeBD provides webcam examples of focused typing, but it does not label ReVoice button choices. Its contribution is a domain-adaptation hint, not evidence of better button selection.
+GazeTypeBD provides webcam examples of focused typing, but it does not label iSpeak button choices. Its contribution is a domain-adaptation hint, not evidence of better button selection.
 
 ## Reproduce training
 
@@ -31,7 +31,7 @@ The trainer uses 114 MCFW training windows and 348 sampled GazeTypeBD windows. E
 
 With the optional assist enabled, ordinary gaze selections receive an extra 500 ms only when the latest fresh estimate is below 0.20. That stricter threshold is intended to reduce unnecessary slowdowns during task-focused gaze. Confirmation timing remains separate. With the assist off, normal configured dwell time applies.
 
-These are offline dataset results, not measurements of ReVoice selection accuracy or real-user responsiveness. The MCFW held-out group is small and uses a Tobii tracker; GazeTypeBD is webcam eye typing rather than ReVoice use. The model can still misclassify gaze patterns and should remain optional until evaluated with actual ReVoice webcam sessions and AAC users. Do not describe it as intent detection or clinical validation.
+These are offline dataset results, not measurements of iSpeak selection accuracy or real-user responsiveness. The MCFW held-out group is small and uses a Tobii tracker; GazeTypeBD is webcam eye typing rather than iSpeak use. The model can still misclassify gaze patterns and should remain optional until evaluated with actual iSpeak webcam sessions and AAC users. Do not describe it as intent detection or clinical validation.
 
 ## Attribution
 

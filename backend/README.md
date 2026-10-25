@@ -1,6 +1,6 @@
 # Backend
 
-A small Python server that sits between the ReVoice app and Twinly. It:
+A small Python server that sits between the iSpeak app and Twinly. It:
 
 - is the **only** place the Twinly API key is used (Twinly refuses requests sent straight from a browser),
 - handles **logins** for caregivers and patients,
@@ -144,4 +144,4 @@ Every few minutes the app sends `POST /api/gaze-stats`:
 - Before putting this server on the public internet (e.g. Fly.io), set a real `SECRET_KEY`.
 
 
-Caregivers connect accounts in Twinly on the computer where it runs; ReVoice does not collect their app passwords. The dashboard can show Twinly-read email and calendar information, recent messages for saved contacts, and ReVoice-started call/task history. The current API does not expose a complete external incoming-call feed. Uber/Lyft requests use the caregiver-selected provider and require a staged trip summary plus patient confirmation before Twinly orders anything.
+Caregivers connect accounts in Twinly on the computer where it runs; iSpeak does not collect their app passwords. The dashboard can show Twinly-read email and calendar information, recent messages for saved contacts, and iSpeak-started call/task history. The current API does not expose a complete external incoming-call feed. Uber/Lyft requests use the caregiver-selected provider and require a staged trip summary plus patient confirmation before Twinly orders anything.

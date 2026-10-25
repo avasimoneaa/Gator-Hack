@@ -1,5 +1,5 @@
 // Download only the small structured-task and natural-image subset needed for
-// the ReVoice gaze-mode prototype. The complete public archive is about 1 GB.
+// the iSpeak gaze-mode prototype. The complete public archive is about 1 GB.
 import https from 'node:https'
 import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -10,7 +10,7 @@ const OUT = path.join(import.meta.dirname, 'data', 'raw')
 
 function request(url, headers = {}) {
   return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'ReVoice-Gaze-Prototype/1.0', ...headers } }, response => {
+    https.get(url, { headers: { 'User-Agent': 'iSpeak-Gaze-Prototype/1.0', ...headers } }, response => {
       if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
         response.resume()
         request(response.headers.location, headers).then(resolve, reject)

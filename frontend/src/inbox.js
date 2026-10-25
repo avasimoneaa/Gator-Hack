@@ -2,7 +2,7 @@ import { escapeHTML, gazeButton, backButton, scrollBox } from './ui.js'
 import { QUICK_REPLIES, builderWords } from './demo-data.js'
 
 // Messages: real text threads with saved contacts, real emails (through
-// Twinly), and calls and tasks started in ReVoice. Every send is reviewed first.
+// Twinly), and calls and tasks started in iSpeak. Every send is reviewed first.
 const FILTERS = [['texts', 'Texts'], ['emails', 'Emails'], ['calls', 'Calls & activity']]
 const ACTIVITY_KINDS = ['call', 'message', 'task']
 
@@ -83,7 +83,7 @@ function detailContent(state) {
   const activity = inboxActivity(state)
   if (kind === 'activity' && activity[Number(key)]) return activityContent(inbox, activity[Number(key)])
   if (inbox.filter === 'emails') return '<p class="detail-label">Emails</p><h2>Your email</h2><p class="message-content">Load your newest emails through Twinly, then choose one to summarize or reply to.</p>'
-  if (inbox.filter === 'calls') return '<p class="detail-label">Calls & activity</p><h2>Recent ReVoice actions</h2><p class="message-content">Calls, texts, and tasks started in ReVoice. Twinly doesn’t share its incoming-call history here yet.</p>'
+  if (inbox.filter === 'calls') return '<p class="detail-label">Calls & activity</p><h2>Recent iSpeak actions</h2><p class="message-content">Calls, texts, and tasks started in iSpeak. Twinly doesn’t share its incoming-call history here yet.</p>'
   return '<p class="detail-label">Texts</p><h2>Your conversations</h2><p class="message-content">Choose a contact to read your recent texts and reply.</p>'
 }
 
@@ -115,7 +115,7 @@ export function inboxScreen(state) {
     const activity = inboxActivity(state)
     rows = activity.map((item, index) => row(activityLabel(item), item.summary || '', 'inbox-select-activity',
       { data: { index }, time: item.created_at, channel: item.kind, selected: !writing && inbox.selectedId === 'activity:' + index })).join('') ||
-      '<p class="empty-messages">' + (inbox.activityLoaded ? 'No recent ReVoice activity.' : 'Loading activity…') + '</p>'
+      '<p class="empty-messages">' + (inbox.activityLoaded ? 'No recent iSpeak activity.' : 'Loading activity…') + '</p>'
   }
 
   return '<main class="shell messages-screen">' + header + filters +
