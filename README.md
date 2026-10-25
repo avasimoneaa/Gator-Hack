@@ -27,6 +27,7 @@ Caregivers and family can customize the dashboard (up to 4 tiles at a time), con
 - **Gemma 4 E2B** — locally run language model that maps spoken requests to the app's allowlisted tasks; users review and confirm by gaze before Twinly runs one
 - **WebGazer** — webcam-based gaze estimation and dwell selection
 - **Browser speech recognition and text-to-speech** — spoken requests and accessible progress updates
+- **Human** — on-device face matching for patient and caregiver sign-in
 
 ## Running locally
 
