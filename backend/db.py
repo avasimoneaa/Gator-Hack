@@ -89,6 +89,13 @@ CREATE TABLE IF NOT EXISTS gaze_stats (
     avg_select_ms REAL    NOT NULL    -- average time to make a selection
 );
 
+-- Events added in the app calendar, shared across a patient profile.
+CREATE TABLE IF NOT EXISTS app_calendar_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, profile_id INTEGER NOT NULL REFERENCES profiles(id),
+    user_id INTEGER NOT NULL REFERENCES users(id), title TEXT NOT NULL, starts_at TEXT NOT NULL,
+    location TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- A record of what Twinly was asked to do.
 CREATE TABLE IF NOT EXISTS task_history (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,

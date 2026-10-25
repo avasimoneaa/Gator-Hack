@@ -72,7 +72,7 @@ export function calendarScreen(state) {
   }).join('')
   const header = '<header class="calendar-header">' + backButton() +
     gazeButton(calendar.loaded ? 'Refresh' : 'Load calendar', 'calendar-load', { className: 'calendar-load-button' }) +
-    '<h1>Calendar</h1><div class="calendar-view-stack"><div class="calendar-views">' + views + '</div></div></header>'
+    '<h1>Twinly calendar</h1><div class="calendar-view-stack"><div class="calendar-views">' + views + '</div></div></header>'
 
   if (!calendar.loaded) {
     return '<main class="shell calendar-screen">' + header + '<section class="calendar-main calendar-main--empty"><div class="calendar-empty">' +

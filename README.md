@@ -1,45 +1,120 @@
 # iSpeak
 
-An eye-gaze assistant for people with disabilities that limit movement or speech (such as ALS, spinal cord injury, cerebral palsy, muscular dystrophy, or stroke) that lets them get things done on a computer — make calls, send texts, book appointments, and speak saved phrases — using only their eyes. iSpeak sends tasks to Twinly, a desktop AI agent, and reads its progress and results aloud, so the user doesn't even need to see the screen.
+**iSpeak is an accessibility-focused communication app built for Gator Hack 2026.** It lets people with limited movement or speech use eye gaze, head movement, touch, and spoken feedback to navigate a computer, prepare messages, and work with a connected desktop assistant.
 
-Built for **Gator Hack 2026**.
+> **Hackathon prototype:** iSpeak is not a medical device or a validated assistive communication product. Eye and face tracking may be inaccurate, and the app must not be relied on for emergencies or other critical care.
 
-## How it works
+## What it can do
 
-1. **Look to choose.** The user rests their gaze on one of a few large tiles. A ring fills up, then the tile is selected (dwell selection).
-2. **Twinly does the work.** iSpeak sends the task to Twinly, which carries it out on the computer.
-3. **Hear what's happening.** Each step and the final result are spoken aloud.
-4. **Stay in control.** Anything important — sending, booking, calling, submitting — needs the user's confirmation first. Pause and Cancel are always available.
+- Navigate large, configurable buttons using webcam eye gaze, a head pointer, or touch/mouse.
+- Calibrate eye tracking with a 17-point calibration flow.
+- Read interface updates aloud and provide browser speech input where supported.
+- Create and review messages, use saved phrases, and access conversation suggestions.
+- Keep an app calendar separate from Twinly's connected, read-only calendar, and prepare event reminders to share with a caregiver.
+- Prepare supported tasks through Twinly and require an on-screen confirmation before actions such as sending or submitting.
+- Offer optional face sign-in and an experimental gaze-mode assist. These features are convenience/prototype features, not security or clinical validation.
 
-Caregivers and family can customize the dashboard (up to 4 tiles at a time), contacts, quick phrases, and voice.
+## Project layout
 
-## Project structure
+| Path | Purpose |
+| --- | --- |
+| `frontend/` | Vite web app, accessibility controls, calibration, and browser-side features |
+| `backend/` | Flask API, account handling, local database, and Twinly integration |
+| `backend/ml/` | Experimental gaze-mode model, dataset notes, and reproduction scripts |
+| `.env.example` | Environment-variable template. Copy this to `.env` for local use. |
 
-| Folder | What goes there |
-|---|---|
-| `frontend/` | The app screens: dashboard, dwell selection, confirmations, settings |
-| `backend/` | The server code that holds the Twinly API key and talks to Twinly |
+## Run it locally
 
-## Tech
+You need a recent Node.js release, Python 3, and a Twinly API key. Some AI-assisted features also need Ollama with the configured Gemma model. The webcam works on `localhost` or an HTTPS site, subject to browser camera permissions.
 
-- **Twinly** — desktop AI agent that performs tasks on the user's computer
-- **Figma Make** — interface design and prototype
-- **Gemma 4 E2B** — locally run language model that maps spoken requests to the app's allowlisted tasks; users review and confirm by gaze before Twinly runs one
-- **MCFW-Gaze (2026)** — recent public gaze dataset used to train an experimental gaze-mode classifier; an optional dwell assist can add up to 0.5 seconds when the gaze pattern resembles free viewing. This prototype is not validated for ALS users or webcam accuracy; details and reproduction steps are in `backend/ml/README.md`.
-- **RealEye webcam eye tracker (open)** — webcam-based gaze estimation and dwell selection
-- **Browser speech recognition and text-to-speech** — spoken requests and accessible progress updates
-- **Human** — on-device face matching for patient and caregiver sign-in
+### 1. Configure the backend
 
-## Running locally
+From the repository root, copy `.env.example` to `.env`, then set `TWINLY_API_KEY` and replace `SECRET_KEY` with a random value. Copy the template with:
 
-1. Copy `.env.example` to a new file named `.env`.
-2. Put your own Twinly API key in `.env`. **Never commit `.env`** — it's already listed in `.gitignore`.
+```sh
+# macOS/Linux
+cp .env.example .env
 
-See `backend/README.md` and `frontend/README.md` for full setup steps.
+# Windows PowerShell
+Copy-Item .env.example .env
+```
 
-## License
+Generate a secret with:
 
-MIT License. See [`LICENSE`](LICENSE). Third-party datasets and libraries keep their own licenses (see `backend/ml/README.md` for dataset attribution).
+```sh
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Keep `.env` private; it is ignored by Git.
+
+Create a Python environment and install the backend packages:
+
+```sh
+python -m venv .venv
+```
+
+Activate it, then install and run the backend:
+
+```sh
+# macOS/Linux
+source .venv/bin/activate
+
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+
+python -m pip install -r backend/requirements.txt
+python backend/app.py
+```
+
+The API listens at `http://localhost:5001` by default.
+
+### 2. Start the frontend
+
+In a second terminal, from the repository root:
+
+```sh
+cd frontend
+npm install
+npm run dev
+```
+
+Open the local URL printed by Vite. To create a production build instead, run `npm run build` from `frontend/`.
+
+### 3. Start local Gemma (when using Gemma-powered features)
+
+Install Ollama, then download and start the configured model:
+
+```sh
+ollama run gemma4:e2b
+```
+
+The backend expects Ollama at `http://127.0.0.1:11434` and uses `gemma4:e2b` by default. You can change these with `GEMMA_BASE_URL` and `GEMMA_MODEL` in `.env`. Keep Ollama running while using those features.
+
+Twinly-powered tasks also require the Twinly desktop app to be running and connected on the computer that can perform the task. See [`backend/README.md`](backend/README.md) for backend setup and API details.
+
+## First use
+
+1. Open iSpeak and sign in or create a caregiver account.
+2. Choose eye tracking and complete calibration, choose the head pointer and center it, or continue with touch/mouse.
+3. Grant camera permission if using gaze, head, or face features.
+4. Configure contacts and preferences in caregiver settings.
+5. Review every proposed message or task. iSpeak requires confirmation before supported external actions are started.
+
+For the detailed screen guide, navigation options, and feature behavior, see [`frontend/README.md`](frontend/README.md).
+
+## Experimental gaze model
+
+The optional gaze-mode assist uses a small classifier trained from public gaze datasets. It can adjust ordinary dwell timing; it does not select controls or confirm actions. Its offline evaluation is limited and does not establish better iSpeak accuracy, webcam reliability, or suitability for people with ALS. Keep it optional and treat it as experimental.
+
+Dataset attribution, evaluation results, limitations, and training steps are in [`backend/ml/README.md`](backend/ml/README.md).
+
+## Privacy and safety notes
+
+- The browser does not receive the Twinly API key; the backend reads it from `.env`.
+- Face templates and gaze calibration are stored in the browser on the current device. Face sign-in is not strong identity verification.
+- Speech recognition may use an online browser service; dictated transcripts are sent to the backend when used for AI suggestions.
+- Do not expose the development backend or Ollama directly to the public internet. A public deployment needs a proper security review and deployment configuration.
+- The emergency screen is a simulation. It does not contact emergency services. Do not use this prototype for emergency response or medical decisions.
 
 ## Team
 
@@ -48,8 +123,6 @@ MIT License. See [`LICENSE`](LICENSE). Third-party datasets and libraries keep t
 - Aaron Ghosh
 - Ava Aguilar
 
-## Shared-device face sign-in
+## License
 
-The caregiver account signs into the backend first. iSpeak then runs gaze calibration and lets the caregiver enroll a patient face, caregiver face, or both. After enrollment, either person can use the camera to return to the portal. Patient sign-out returns to face sign-in while keeping this browser session available. The caregiver sign-out control requires the caregiver password and revokes that browser session.
-
-Face measurements are kept in the browser on this device and are not uploaded. This is a hackathon convenience flow, not production-grade identity security: browser storage can be changed by someone with device access, and webcam face matching can be fooled or fail. The patient and caregiver use the caregiver's backend permissions while in the portal. iSpeak includes password sign-in as fallback.
+MIT License. See [`LICENSE`](LICENSE). Third-party datasets and libraries keep their own licenses (see `backend/ml/README.md` for dataset attribution).

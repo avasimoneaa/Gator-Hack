@@ -1,10 +1,11 @@
 import { WebcamETLight, getCalibrationPoints, getRecommendedPattern } from '@realeye-io/webcam-eyetracker-light-open'
 import { estimateGazeMode } from './gaze-intent.js'
-import { captureFaceTemplate, matchFaceTemplates, prepareFaceRecognition } from './face-recognition.js'
 import './design.css'
 import { ui, escapeHTML, gazeButton, tile, backButton, scrollBox, updateScrollBoxes, scrollBoxBy, noticeMarkup, homeIcon } from './ui.js'
 import { FEATURE_FLOWS, SECOND_STEPS, WORKFLOW_SUGGESTIONS, APPOINTMENT_TYPES, APPOINTMENT_URGENCY, APPOINTMENT_TIMES } from './demo-data.js'
 import { calendarScreen, todayISO, addDays, parseCalendarEvents } from './calendar.js'
+import { personalCalendarScreen } from './personal-calendar.js'
+import { createSpeechController } from './speech.js'
 import { inboxScreen } from './inbox.js'
 import { calibrationKey, saveCalibration, loadCalibration, restoreCalibration, removeCalibration, clearCalibrations, calibrationWindowChanged } from './gaze-calibration-store.js'
 import { headOffset, averageOffset, headPointerPosition } from './head-pointer.js'
@@ -146,6 +147,7 @@ const state = {
   booking: { type: '', urgency: '', time: '', extra: '' },
   calendar: { view: 'upcoming', date: todayISO(), loaded: false },
   calendarEvents: [],
+  appCalendarEvents: [], appCalendarLoaded: false, appCalendarLoading: false, calendarAdding: false, calendarError: '',
   customWorkflows: loadWorkflows(),
   workflowPrompt: '',
   workflowSelected: '',
@@ -155,13 +157,18 @@ const state = {
   headSetupBusy: false,
   headSetupMessage: '',
   headSetupReturn: 'eye-setup',
+  eyeSetupRequireCalibration: false,
+  calibrationFromHead: false,
+  speechPaused: false,
   inbox: {
-    filter: 'texts', selectedId: '', mode: 'message', contact: null, draft: '',
+    filter: 'texts', selectedId: '', mode: 'message', contact: null, draft: '', contextDraft: '',
     contacts: [], contactsLoaded: false, contactsError: '',
     thread: [], threadLoading: false, threadError: '',
     activity: [], activityLoaded: false, activityDetail: '',
   },
 }
+
+const speechController = createSpeechController(() => state.profile?.voice_speed)
 
 const DWELL_MS = 1500
 const CONFIRM_DWELL_MS = 3000
@@ -173,9 +180,7 @@ const CALIBRATION_SETTLE_MS = 2400
 const CALIBRATION_SAMPLE_COUNT = 5
 const CALIBRATION_SAMPLE_INTERVAL_MS = 180
 const CALIBRATION_POINT_TIMEOUT_MS = 15000
-const TOP_EDGE_ZONE_PX = 200
-const BOTTOM_EDGE_ZONE_PX = 100
-const EDGE_ARM_MS = 3000
+const EDGE_ARM_MS = 1100
 const RESTORE_CHECK_MS = 1500
 const HEAD_SETTLE_MS = 800
 const HEAD_CENTER_SAMPLES = 30
@@ -230,18 +235,30 @@ let faceFlowVersion = 0
 let noticeTimer = 0
 let lastRenderedScreen = ''
 let headCentering = null
+let faceRecognitionModule = null
+
+function loadFaceRecognition() {
+  if (!faceRecognitionModule) faceRecognitionModule = import('./face-recognition.js').catch(error => { faceRecognitionModule = null; throw error })
+  return faceRecognitionModule
+}
 
 function selectedMessageContacts() {
   if (!state.message) return []
   return state.message.contacts.filter(contact => state.message.recipientIds.includes(String(contact.id)))
 }
 
-function speak(text) {
-  if (!window.speechSynthesis) return
-  window.speechSynthesis.cancel()
-  const utterance = new SpeechSynthesisUtterance(String(text))
-  utterance.rate = Number(state.profile?.voice_speed) || 1
-  window.speechSynthesis.speak(utterance)
+function speak(text) { speechController.speak(text) }
+
+function pauseSpeech() {
+  state.speechPaused = true
+  speechController.pause()
+  showNotice('Speech paused', 'info')
+}
+
+function resumeSpeech() {
+  state.speechPaused = false
+  speechController.resume()
+  showNotice('Speech resumed', 'info')
 }
 
 function feedback(message, sayIt) {
@@ -611,6 +628,13 @@ function applyDisplayPrefs() {
   ui.scrollMode = state.display.navMode === 'scroll'
 }
 
+function outerControlsMarkup() {
+  const on = pointerActive(), head = headActive()
+  return '<aside class="sidebar-home-rail outer-control-rail" aria-label="App controls">' +
+    (on ? gazeButton((state.gazePaused ? 'Resume ' : 'Pause ') + (head ? 'pointer' : 'eyes'), 'toggle-gaze-pause', { className: 'pause-eyes', whilePaused: true }) : gazeButton('Turn on eyes', 'turn-on-eyes', { className: 'pause-eyes' })) +
+    gazeButton('← Back', 'go-back') + gazeButton('Home', 'home-first-page') + gazeButton('Get help', 'open-get-help', { className: 'get-help', whilePaused: true }) + '</aside>'
+}
+
 function render() {
   resetDwell()
   stopEdgeScroll()
@@ -619,7 +643,9 @@ function render() {
   const boxScroll = sameScreen ? Array.from(app.querySelectorAll('.scroll-box-content')).map(element => element.scrollTop) : []
   const pageScroll = sameScreen ? window.scrollY : 0
   lastRenderedScreen = state.screen
-  app.innerHTML = designScreen() + noticeMarkup(state.notice) +
+  const showOuterControls = state.token && effectiveHomeStyle() === 'sidebar' && state.screen !== 'dashboard' && !['login','face-scan','caregiver-login','eye-setup','head-setup','face-enroll','calibration'].includes(state.screen)
+  const page = designScreen()
+  app.innerHTML = (showOuterControls ? '<div class="outer-control-layout"><div class="outer-control-main">' + page + '</div>' + outerControlsMarkup() + '</div>' : page) + noticeMarkup(state.notice) +
     '<p id="live-status" class="sr-only" role="status" aria-live="polite"></p><div id="edge-indicator" aria-hidden="true"></div>' +
     caregiverLogoutDialog() + '<div id="gaze-cursor" aria-hidden="true"></div>'
   app.querySelectorAll('.scroll-box-content').forEach(function (element, index) { if (boxScroll[index]) element.scrollTop = boxScroll[index] })
@@ -639,6 +665,8 @@ function render() {
   if (conversationForm) conversationForm.addEventListener('submit', handleConversationForm)
   const logoutForm = document.querySelector('#caregiver-logout-form')
   if (logoutForm) logoutForm.addEventListener('submit', handleCaregiverLogout)
+  const calendarForm = document.querySelector('#app-calendar-form')
+  if (calendarForm) calendarForm.addEventListener('submit', handleAppCalendarForm)
   updateScrollBoxes(app)
 }
 
@@ -660,6 +688,7 @@ function designScreen() {
     case 'calibration': return calibrationContent()
     case 'messages': return inboxScreen(state)
     case 'calendar': return calendarScreen(state)
+    case 'app-calendar': return personalCalendarScreen(state)
     case 'workflow-create':
     case 'workflow-review': return workflowContent()
     case 'caregiver-settings': return caregiverSettingsContent()
@@ -732,7 +761,7 @@ function faceProgressBar(message) {
 
 function loginContent() {
   return '<main class="shell login-screen"><h1>iSpeak</h1>' +
-    gazeButton(faceDrawing(false), 'face-login', { className: 'face-login', ariaLabel: 'Login with face', html: true }) +
+    gazeButton(faceDrawing(true), 'face-login', { className: 'face-login', ariaLabel: 'Login with face', html: true }) +
     '<p class="login-label">Login with face</p>' +
     gazeButton('Caregiver sign in', 'show-caregiver-login', { className: 'login-secondary' }) +
     '<p class="login-note">Face matching is a demo convenience, not strong identity verification. Caregiver password sign-in is always available.</p></main>'
@@ -766,7 +795,7 @@ function faceEnrollContent() {
 
 function caregiverLoginContent() {
   if (state.authMode === 'signup') {
-    return cardScreen({ back: 'back-to-login', label: 'Caregiver', title: 'Create a iSpeak account', body:
+    return cardScreen({ back: 'back-to-login', label: 'Caregiver', title: 'Create an iSpeak account', body:
       '<p>Start a patient profile or join one using a caregiver’s join code.</p><form id="auth-form">' +
       field('Your name', '<input name="name" autocomplete="name" maxlength="80" required>') +
       field('Email', '<input name="email" type="email" autocomplete="email" required>') +
@@ -791,19 +820,21 @@ function eyeSetupContent() {
   const saved = loadCalibration(currentCalibrationKey())
   const fromHome = state.eyeSetupOrigin === 'home'
   const busy = state.eyeSetupBusy
+  const requireCalibration = state.eyeSetupRequireCalibration
   const savedOn = saved ? new Date(saved.savedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''
   return '<main class="shell choice-screen">' + backButton(fromHome ? 'back-dashboard' : 'back-to-login', fromHome ? 'Home' : 'Back') +
     '<h1>Eye tracking</h1><p>' + (fromHome ? 'Turn on eye tracking to select with your eyes.' : 'How do you want to use iSpeak today?') + '</p>' +
     '<div class="choice-tiles">' +
     tile('Calibrate my eyes', 'eye-calibrate', { icon: homeIcon('eye'), subtitle: 'Follow ' + CALIBRATION_POINTS.length + ' dots · about one minute', disabled: busy }) +
-    (saved ? tile('Use last calibration', 'eye-use-last', { icon: homeIcon('last calibration'), subtitle: 'Saved ' + savedOn + (calibrationWindowChanged(saved) ? ' · window size changed, may be less accurate' : ''), disabled: busy }) : '') +
-    tile('Head pointer', 'eye-head-pointer', { icon: homeIcon('head pointer'), subtitle: 'Turn or tilt your head to move the pointer · no calibration', disabled: busy }) +
+    (saved && !requireCalibration ? tile('Use last calibration', 'eye-use-last', { icon: homeIcon('last calibration'), subtitle: 'Saved ' + savedOn + (calibrationWindowChanged(saved) ? ' · window size changed, may be less accurate' : ''), disabled: busy }) : '') +
+    tile('Head pointer', 'eye-head-pointer', { icon: homeIcon('head pointer'), subtitle: 'Center your head before using the pointer', disabled: busy }) +
     (fromHome ? '' : tile('Touch only', 'eye-touch-only', { icon: homeIcon('touch'), subtitle: 'Skip calibration. Turn eyes on later from Accessibility.', disabled: busy })) +
     '</div>' + (state.eyeSetupMessage ? '<p class="warning-text" role="status">' + escapeHTML(state.eyeSetupMessage) + '</p>' : '') + '</main>'
 }
 
-function openEyeSetup(origin) {
+function openEyeSetup(origin, requireCalibration = false) {
   state.eyeSetupOrigin = origin
+  state.eyeSetupRequireCalibration = requireCalibration
   state.eyeSetupMessage = ''
   state.eyeSetupBusy = false
   go('eye-setup')
@@ -817,6 +848,7 @@ async function chooseCalibration() {
   state.calibrationComplete = false
   state.calibrationMessage = ''
   state.calibrationReturnScreen = null
+  state.calibrationFromHead = state.headPointer
   state.touchOnly = false
   state.headPointer = false
   state.gazePaused = false
@@ -863,6 +895,7 @@ function chooseTouchOnly() {
 }
 
 function finishEyeSetup(message) {
+  state.eyeSetupRequireCalibration = false
   if (state.eyeSetupOrigin === 'caregiver' && !getFaceProfiles().length) {
     state.faceLabel = ''
     state.faceStatus = ''
@@ -1005,6 +1038,8 @@ function setFaceProgress(percent) {
 }
 
 function patientSignOut() {
+  speechController.cancel()
+  state.speechPaused = false
   faceFlowVersion += 1
   state.faceStatus = ''
   state.faceBusy = false
@@ -1040,7 +1075,7 @@ function selectedWorkflow() {
 const GRID_SCREENS = {
   dashboard: { title: () => 'Home', items: homeItems, select: selectHomeItem, back: function () {} },
   talk: { title: () => 'Talk', items: () => ['quick phrases', 'conversation replies', 'keyboard'], select: selectTalkItem, back: () => go('dashboard') },
-  accessibility: { title: () => 'Accessibility', items: () => [...pointerItems(), 'check fatigue', 'read home aloud', 'pause speech'], select: selectAccessibilityItem, back: () => go('dashboard') },
+  accessibility: { title: () => 'Accessibility', items: () => [...pointerItems(), 'check fatigue', 'read home aloud', (state.speechPaused ? 'resume speech' : 'pause speech')], select: selectAccessibilityItem, back: () => go('dashboard') },
   'get-help': { title: () => 'Get help', items: () => ['alert my help contacts', demoShown() ? 'medical emergency' : ''], select: selectGetHelpItem, back: () => go('dashboard') },
   routines: { title: () => 'Routines', items: () => ['morning', 'catch up', 'appointments', 'calendar'], select: selectRoutineItem, back: () => go('dashboard') },
   feature: {
@@ -1081,23 +1116,21 @@ const GRID_SCREENS = {
 function gridLayout(screen) {
   const items = GRID_SCREENS[screen].items().filter(Boolean)
   const sidebarHome = screen === 'dashboard' && effectiveHomeStyle() === 'sidebar'
+  const controlLayout = effectiveHomeStyle() === 'sidebar' && screen !== 'dashboard'
+  const hasBackTile = !sidebarHome && !controlLayout
   const count = effectiveButtonCount()
   const scrollMode = state.display.navMode === 'scroll'
-  if (scrollMode) {
-    const gridItems = [...items]
-    if (!sidebarHome) gridItems.push('← back')
-    return { gridItems, page: 0, pageCount: 1, count, scrollMode }
-  }
-  // Paging follows the design: the last tile is "← back" and "→" opens the next page.
-  const singlePageCapacity = sidebarHome ? 6 : count - 1
+  if (scrollMode) { const gridItems = [...items]; if (hasBackTile) gridItems.push('← back'); return { gridItems, page: 0, pageCount: 1, count, scrollMode } }
+  const singlePageCapacity = hasBackTile ? count - 1 : count
   const needsPages = items.length > singlePageCapacity
-  const pageSize = sidebarHome ? 6 : needsPages ? count - 2 : singlePageCapacity
+  const pageSize = needsPages ? (sidebarHome ? count : count - 2) : singlePageCapacity
   const pageCount = Math.max(1, Math.ceil(items.length / pageSize))
   const page = Math.min(state.gridPage, pageCount - 1)
   const gridItems = items.slice(page * pageSize, (page + 1) * pageSize)
-  if (!sidebarHome && needsPages && page < pageCount - 1) gridItems.push('→')
-  while (gridItems.length < (sidebarHome ? 6 : count - 1)) gridItems.push('')
-  if (!sidebarHome) gridItems.push('← back')
+  if (needsPages && page > 0 && controlLayout) gridItems.unshift('← page')
+  if (needsPages && page < pageCount - 1 && !sidebarHome) gridItems.push('→')
+  while (gridItems.length < (hasBackTile ? count - 1 : count)) gridItems.push('')
+  if (hasBackTile) gridItems.push('← back')
   return { gridItems, page, pageCount, count, scrollMode }
 }
 
@@ -1107,6 +1140,7 @@ function gridTile(screen, label, layout) {
   if (!label) return tile('', null)
   if (label === '← back') return tile(label, 'grid-back', { back: true, disabled: home && layout.page === 0, icon: style === 'illustrated' ? homeIcon(label) : '' })
   if (label === '→') return tile('→', 'grid-next')
+  if (label === '← page') return tile(label, 'grid-prev')
   const health = home && label === 'health' && style !== 'illustrated'
   return tile(label, 'grid-select', {
     data: { label },
@@ -1137,19 +1171,20 @@ function homeContent() {
     '<span aria-hidden="true">' + dots + '</span>' + gazeButton('Next page →', 'grid-next', { disabled: layout.page >= layout.pageCount - 1 }) + '</footer>'
   return '<main class="shell sidebar-home"><header class="sidebar-home-header"><div><h1>Home</h1>' + pageText + '</div>' +
     '<div><i class="' + statusClass + '"></i><span>' + statusText + '</span></div></header>' +
-    '<div class="sidebar-home-layout"><section class="sidebar-home-content"><div class="sidebar-home-grid">' + tiles + '</div>' + pager + '</section>' +
+    '<div class="sidebar-home-layout"><section class="sidebar-home-content"><div class="sidebar-home-grid tile-grid--' + layout.count + '">' + tiles + '</div>' + pager + '</section>' +
     '<aside class="sidebar-home-rail" aria-label="Controls">' +
     (pointerOn
       ? gazeButton((state.gazePaused ? 'Resume ' : 'Pause ') + (head ? 'pointer' : 'eyes'), 'toggle-gaze-pause', { className: 'pause-eyes', whilePaused: true })
       : gazeButton('Turn on eyes', 'turn-on-eyes', { className: 'pause-eyes' })) +
     (layout.scrollMode ? gazeButton('↑ Back to top', 'scroll-top') : gazeButton('← Back', 'grid-prev', { disabled: layout.page === 0 })) +
-    gazeButton('Home', 'noop', { disabled: true }) +
+    gazeButton('Home', 'home-first-page') +
     gazeButton('Get help', 'open-get-help', { className: 'get-help', whilePaused: true }) + '</aside></div></main>'
 }
 
 function gridContent(screen) {
   const layout = gridLayout(screen)
-  return '<main class="shell grid-screen grid-screen--titled"><h1 class="grid-title">' + escapeHTML(GRID_SCREENS[screen].title()) + '</h1>' +
+  const withRail = effectiveHomeStyle() === 'sidebar'
+  return '<main class="shell grid-screen grid-screen--titled' + (withRail ? ' grid-screen--sidebar' : '') + '"><h1 class="grid-title">' + escapeHTML(GRID_SCREENS[screen].title()) + '</h1>' +
     '<div class="tile-grid tile-grid--' + layout.count + '">' + layout.gridItems.map(label => gridTile(screen, label, layout)).join('') + '</div></main>'
 }
 
@@ -1194,27 +1229,13 @@ function selectAccessibilityItem(label) {
   if (label === 'recalibrate') startQuickCalibration()
   else if (label === 'turn on eye tracking') openEyeSetup('home')
   else if (label === 'use head pointer' || label === 'recenter head pointer') openHeadSetup()
-  else if (label === 'use eye tracking') {
-    // Go back to this session's eye calibration if there is one.
-    if (gazeStarted && gazeTracker?.isCalibrated()) {
-      state.headPointer = false
-      samples.length = 0
-      go('dashboard')
-      speak('Eye tracking is back on.')
-    } else {
-      state.headPointer = false
-      state.touchOnly = true
-      openEyeSetup('home')
-    }
-  }
+  else if (label === 'use eye tracking') { openEyeSetup('home', true) }
   else if (label === 'check fatigue') checkFatigue()
   else if (label === 'read home aloud') {
     go('dashboard')
     speak(document.querySelector('main')?.innerText || 'Nothing to read.')
-  } else if (label === 'pause speech') {
-    window.speechSynthesis?.cancel()
-    showNotice('Speech stopped', 'info')
-  }
+  } else if (label === 'pause speech') pauseSpeech()
+  else if (label === 'resume speech') resumeSpeech()
 }
 
 function selectGetHelpItem(label) {
@@ -1276,7 +1297,30 @@ function prepareBookingRequest() {
 }
 
 function openCalendar() {
-  go('calendar')
+  state.calendarAdding = false; state.calendarError = ''; state.screen = 'app-calendar'; state.gridPage = 0; render(); loadAppCalendarEvents()
+}
+function openTwinlyCalendar() { go('calendar') }
+async function loadAppCalendarEvents() {
+  state.appCalendarLoading = true
+  try { state.appCalendarEvents = await api('/api/calendar/events'); state.appCalendarLoaded = true; state.calendarError = '' }
+  catch (error) { state.calendarError = error.message }
+  state.appCalendarLoading = false
+  if (state.screen === 'app-calendar') render()
+}
+async function handleAppCalendarForm(event) {
+  event.preventDefault()
+  const data = new FormData(event.currentTarget)
+  try {
+    await api('/api/calendar/events', { method: 'POST', body: JSON.stringify({ title: data.get('title'), starts_at: data.get('starts_at'), location: data.get('location'), notes: data.get('notes') }) })
+    state.calendarAdding = false; state.calendarError = ''; await loadAppCalendarEvents(); speak('Event saved to My calendar.')
+  } catch (error) { state.calendarError = error.message; render() }
+}
+async function startCalendarMessage(id) {
+  const event = state.appCalendarEvents.find(item => String(item.id) === String(id)); if (!event) return
+  const date = new Date(event.starts_at); const when = Number.isNaN(date.getTime()) ? event.starts_at : date.toLocaleString([], { dateStyle: 'full', timeStyle: 'short' })
+  state.inbox.contextDraft = 'Reminder: ' + event.title + ' is scheduled for ' + when + (event.location ? ' at ' + event.location : '') + '.'
+  state.inbox.mode = 'compose'; state.inbox.draft = ''; state.inbox.contact = null; state.inbox.filter = 'texts'; state.inbox.selectedId = ''
+  await openInbox()
 }
 
 // Reads upcoming events from the connected calendar through Twinly (read-only).
@@ -1404,8 +1448,9 @@ async function checkActivityJob(jobId) {
 
 function beginInboxWriting(contact) {
   state.inbox.contact = contact
-  state.inbox.draft = ''
-  state.inbox.mode = 'write'
+  state.inbox.draft = state.inbox.contextDraft || ''
+  state.inbox.contextDraft = ''
+  state.inbox.mode = state.inbox.draft ? 'ready' : 'write'
   render()
 }
 
@@ -1772,7 +1817,7 @@ const TASK_SCREENS = {
       actions(primary('Confirm and send reply', 'confirm-email-reply'), gazeButton('Go back', 'back-message-draft')) })
   },
   'browser-compose': function () {
-    return cardScreen({ label: 'Website task', title: 'What should Twinly research?', body:
+    return cardScreen({ title: 'What should Twinly research?', body:
       '<p>Twinly uses the connected browser to research or prepare this, shows you the result, and must stop before sending, booking, buying, or submitting.</p>' +
       field('Website task', '<textarea id="browser-request" maxlength="800" rows="4" placeholder="For example: find the clinic’s phone number and appointment instructions">' + escapeHTML(state.browserRequest) + '</textarea>') +
       actions(gazeButton('Enter it with the eye-gaze keyboard', 'browser-keyboard'), primary('Review website task', 'browser-review')) })
@@ -1851,6 +1896,7 @@ async function handleCaregiverLogout(event) {
   state.caregiverLogoutError = ''
   try {
     await api('/api/auth/verify-password', { method: 'POST', body: JSON.stringify({ password }) })
+    speechController.cancel(); state.speechPaused = false
     clearCalibrations(state.profile?.id)
     localStorage.removeItem(faceTemplatesKey()); clearSession()
     state.screen = 'login'; state.authMode = 'login'; state.caregiverLogoutOpen = false; state.caregiverLogoutError = ''
@@ -1868,7 +1914,8 @@ async function runFaceFlow() {
   if (startButton) { startButton.disabled = true; startButton.textContent = enrollment ? 'Scanning face…' : 'Checking face…' }
   let stream = null
   try {
-    await prepareFaceRecognition()
+    const faceRecognition = await loadFaceRecognition()
+    await faceRecognition.prepareFaceRecognition()
     if (version !== faceFlowVersion) return
     if (gazeStarted && gazeVideo?.srcObject) {
       video.srcObject = gazeVideo.srcObject
@@ -1879,7 +1926,7 @@ async function runFaceFlow() {
     await video.play()
     const progress = (done, total, message) => { const el = document.querySelector('#face-status'); if (el) el.textContent = message; setFaceProgress(total ? (done / total) * 100 : 0) }
     if (enrollment) {
-      const templates = await captureFaceTemplate(video, 4, progress), profiles = getFaceProfiles(), label = state.faceLabel || 'Patient'
+      const templates = await faceRecognition.captureFaceTemplate(video, 4, progress), profiles = getFaceProfiles(), label = state.faceLabel || 'Patient'
       if (version !== faceFlowVersion) return
       const index = profiles.findIndex(person => person.label === label), person = { label, templates }
       if (index >= 0) profiles[index] = person; else profiles.push(person)
@@ -1889,7 +1936,7 @@ async function runFaceFlow() {
     }
     const profiles = getFaceProfiles(); let matched = null
     for (const person of profiles) {
-      if (await matchFaceTemplates(video, person.templates || [], progress)) { matched = person; break }
+      if (await faceRecognition.matchFaceTemplates(video, person.templates || [], progress)) { matched = person; break }
       if (version !== faceFlowVersion) return
     }
     if (version !== faceFlowVersion) return
@@ -2163,8 +2210,10 @@ function stopEdgeScroll() {
   edgeBoundaryAnnounced = false
 }
 
-function handleEdgeScroll(y) {
-  const direction = y <= TOP_EDGE_ZONE_PX ? -1 : y >= window.innerHeight - BOTTOM_EDGE_ZONE_PX ? 1 : 0
+function handleEdgeScroll(x, y) {
+  const zone = Math.min(112, Math.max(64, window.innerHeight * 0.08))
+  const inCenterBand = x >= window.innerWidth * 0.15 && x <= window.innerWidth * 0.85
+  const direction = !inCenterBand ? 0 : y <= zone ? -1 : y >= window.innerHeight - zone ? 1 : 0
   if (!direction) {
     stopEdgeScroll()
     return false
@@ -2174,7 +2223,7 @@ function handleEdgeScroll(y) {
     edgeScrollDirection = direction
     edgeScrollStartedAt = performance.now()
     resetDwell()
-    feedback('Hold your gaze at the ' + (direction < 0 ? 'top' : 'bottom') + ' edge for 3 seconds to scroll. Look away to stop.')
+    feedback('Hold near the ' + (direction < 0 ? 'top' : 'bottom') + ' edge for about one second to scroll. Move away to stop.')
   }
   const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
   const atBoundary = direction < 0 ? window.scrollY <= 0 : window.scrollY >= maxScroll
@@ -2249,6 +2298,12 @@ function handleGazePoint(x, y) {
   if (state.screen === 'calibration' && state.calibrationRunning) return
   if (state.touchOnly) return
 
+  if (state.display.navMode === 'scroll') {
+    const scrolling = handleEdgeScroll(smoothX, smoothY)
+    showEdgeIndicator()
+    if (scrolling) return
+  } else if (edgeScrollDirection) { stopEdgeScroll(); showEdgeIndicator() }
+
   const targets = Array.from(document.querySelectorAll('.gaze-action:not(:disabled), .tile:not(:disabled)'))
   const target = targets.find(function (item) {
     if (state.gazePaused && !item.hasAttribute('data-while-paused')) return false
@@ -2257,15 +2312,6 @@ function handleGazePoint(x, y) {
     return smoothX >= rect.left - X_TOLERANCE && smoothX <= rect.right + X_TOLERANCE &&
       smoothY >= rect.top - Y_TOLERANCE && smoothY <= rect.bottom + Y_TOLERANCE
   })
-  // Gaze scrolls the page only in Scrolling mode, and only when no button is looked at.
-  if (state.display.navMode === 'scroll' && !target) {
-    const scrolling = handleEdgeScroll(smoothY)
-    showEdgeIndicator()
-    if (scrolling) return
-  } else if (edgeScrollDirection) {
-    stopEdgeScroll()
-    showEdgeIndicator()
-  }
   const now = performance.now()
   const isConfirm = (state.screen === 'review' && target?.dataset.action === 'confirm-task') ||
     (state.screen === 'errand-final-review' && target?.dataset.action === 'confirm-errand-submit') ||
@@ -2699,6 +2745,7 @@ function finishCalibration() {
   stopCalibration()
   try {
     gazeTracker.calibrate(calibrationSamples)
+    state.calibrationFromHead = false
     state.calibrationComplete = true
     state.calibrationMessage = ''
     const returnScreen = state.calibrationReturnScreen
@@ -2998,6 +3045,17 @@ window.addEventListener('keydown', function (event) {
     resumeCurrentTaskPolling()
     return
   }
+  if (state.calibrationFromHead) {
+    state.calibrationFromHead = false
+    state.headPointer = true
+    state.touchOnly = false
+    state.eyeSetupRequireCalibration = true
+    state.screen = 'eye-setup'
+    state.calibrationMessage = ''
+    render()
+    speak('Calibration stopped. The head pointer is still on. Start eye calibration when you are ready.')
+    return
+  }
   state.calibrationMessage = 'Calibration stopped. Start it again whenever you are ready.'
   render()
 })
@@ -3050,6 +3108,8 @@ app.addEventListener('click', async function (event) {
         state.screen = returnScreen
         render()
         resumeCurrentTaskPolling()
+      } else if (state.calibrationFromHead) {
+        state.calibrationFromHead = false; state.headPointer = true; state.touchOnly = false; openEyeSetup(state.eyeSetupOrigin, true)
       } else openEyeSetup(state.eyeSetupOrigin)
       break
     case 'calibration-touch-only': state.touchOnly = true; state.headPointer = false; state.gazePaused = false; finishEyeSetup('Touch only. You can turn on eye tracking later from Accessibility.'); break
@@ -3068,6 +3128,7 @@ app.addEventListener('click', async function (event) {
       break
     case 'head-center': await startHeadCentering(); break
     case 'turn-on-eyes': openEyeSetup('home'); break
+    case 'home-first-page': state.screen = 'dashboard'; state.gridPage = 0; render(); break
     case 'toggle-gaze-pause':
       state.gazePaused = !state.gazePaused
       render()
@@ -3337,12 +3398,8 @@ app.addEventListener('click', async function (event) {
     case 'read-screen':
       speak((document.querySelector('#screen-content') || document.querySelector('main'))?.innerText || 'Nothing to read.')
       break
-    case 'pause-speech':
-      if (window.speechSynthesis) {
-        window.speechSynthesis.cancel()
-        speak('Speech paused.')
-      }
-      break
+    case 'pause-speech': pauseSpeech(); break
+    case 'resume-speech': resumeSpeech(); break
 
     // Messages inbox
     case 'open-messages': await openInbox(); break
@@ -3360,7 +3417,7 @@ app.addEventListener('click', async function (event) {
     case 'inbox-select-activity': state.inbox.selectedId = 'activity:' + button.dataset.index; state.inbox.activityDetail = ''; render(); break
     case 'inbox-activity-status': await checkActivityJob(button.dataset.job); break
     case 'inbox-call': await openCall(); break
-    case 'inbox-new': state.inbox.mode = 'compose'; state.inbox.draft = ''; state.inbox.contact = null; render(); break
+    case 'inbox-new': state.inbox.mode = 'compose'; state.inbox.draft = ''; state.inbox.contextDraft = ''; state.inbox.contact = null; render(); break
     case 'inbox-choose-contact':
       beginInboxWriting(button.dataset.id ? state.inbox.contacts.find(contact => String(contact.id) === button.dataset.id) || null : null)
       break
@@ -3381,6 +3438,11 @@ app.addEventListener('click', async function (event) {
     case 'inbox-email-reply': await openEmailReply(); break
 
     // Calendar (read-only, through Twinly)
+    case 'calendar-add': state.calendarAdding = true; state.calendarError = ''; render(); break
+    case 'calendar-cancel-add': state.calendarAdding = false; state.calendarError = ''; render(); break
+    case 'calendar-share-event': await startCalendarMessage(button.dataset.id); break
+    case 'calendar-delete-event': try { await api('/api/calendar/events/' + encodeURIComponent(button.dataset.id), { method: 'DELETE' }); await loadAppCalendarEvents() } catch (error) { state.calendarError = error.message; render() } break
+    case 'open-twinly-calendar': openTwinlyCalendar(); break
     case 'calendar-load': requestCalendarEvents(); break
     case 'calendar-view': state.calendar.view = button.dataset.view; render(); break
     case 'calendar-open-day': openCalendarDay(button.dataset.date); break

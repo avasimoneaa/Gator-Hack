@@ -93,7 +93,7 @@ def current_profile():
 def forward(result, kind=None, summary=None):
     """Send Twinly's answer back to the app, and log new jobs to history."""
     status, body = result
-    # A Twinly 401 is not a iSpeak session failure. Keep it distinct so the
+# A Twinly 401 is not an iSpeak session failure. Keep it distinct so the
     # frontend does not erase the user's valid login when Twinly rejects a key.
     if status == 401:
         return error(
@@ -126,6 +126,37 @@ def health():
     """Quick check that this server is running. No login needed."""
     return jsonify({"ok": True})
 
+
+
+# App-owned events; independent of the connected Twinly calendar.
+def app_calendar_event_json(row):
+    return {"id": row["id"], "title": row["title"], "starts_at": row["starts_at"], "location": row["location"], "notes": row["notes"]}
+
+@app.get("/api/calendar/events")
+@login_required
+def list_app_calendar_events():
+    rows = get_db().execute("SELECT * FROM app_calendar_events WHERE profile_id = ? ORDER BY starts_at, id", (g.user["profile_id"],)).fetchall()
+    return jsonify([app_calendar_event_json(row) for row in rows])
+
+@app.post("/api/calendar/events")
+@login_required
+def create_app_calendar_event():
+    from datetime import datetime
+    data = body_json(); title = text_field(data, "title", 120); starts_at = text_field(data, "starts_at", 40)
+    location = text_field(data, "location", 200); notes = text_field(data, "notes", 1000)
+    if not title or not starts_at: return error("missing_fields", "Enter an event name and date/time.")
+    try: datetime.fromisoformat(starts_at.replace("Z", "+00:00"))
+    except ValueError: return error("invalid_datetime", "Enter a valid event date and time.")
+    db = get_db(); cur = db.execute("INSERT INTO app_calendar_events (profile_id, user_id, title, starts_at, location, notes) VALUES (?, ?, ?, ?, ?, ?)", (g.user["profile_id"], g.user["id"], title, starts_at, location, notes)); db.commit()
+    row = db.execute("SELECT * FROM app_calendar_events WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return jsonify(app_calendar_event_json(row)), 201
+
+@app.delete("/api/calendar/events/<int:event_id>")
+@login_required
+def delete_app_calendar_event(event_id):
+    db = get_db(); cur = db.execute("DELETE FROM app_calendar_events WHERE id = ? AND profile_id = ?", (event_id, g.user["profile_id"]))
+    if not cur.rowcount: return error("event_not_found", "That event was not found.", 404)
+    db.commit(); return jsonify({"deleted": True})
 
 # ---------- accounts ----------
 

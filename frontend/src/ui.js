@@ -39,7 +39,7 @@ export function tile(label, action, options = {}) {
     (options.whilePaused ? ' data-while-paused' : '') +
     (options.disabled ? ' disabled' : '') + '>' +
     (options.badge ? '<span class="badge" aria-label="' + escapeHTML(options.badge) + ' unread">' + escapeHTML(options.badge) + '</span>' : '') +
-    (options.health ? '<img class="health-illustration" src="/assets/health-illustration.png" alt="">' : '') +
+    (options.health ? '<span class="health-illustration" aria-hidden="true">' + homeIcon('health') + '</span>' : '') +
     (options.icon ? '<span class="home-icon" aria-hidden="true">' + options.icon + '</span>' : '') +
     '<span class="tile-label">' + escapeHTML(label) + '</span>' +
     (options.subtitle ? '<small class="tile-sub">' + escapeHTML(options.subtitle) + '</small>' : '') +
@@ -98,7 +98,7 @@ const ICONS = {
   calendar: '<rect x="12" y="14" width="40" height="38" rx="5" S/><path d="M12 25h40M22 9v10M42 9v10M23 35h2M32 35h2M41 35h2M23 43h2M32 43h2" S/>',
   internet: '<circle cx="32" cy="31" r="20" S/><path d="M12 31h40M32 11c10 11 10 29 0 40M32 11c-10 11-10 29 0 40M10 54h44" S/>',
   rides: '<path d="M10 40v-8l6-12h32l6 12v8a4 4 0 0 1-4 4H14a4 4 0 0 1-4-4zM10 32h44" S/><circle cx="20" cy="44" r="5" S/><circle cx="44" cy="44" r="5" S/>',
-  health: '<rect x="10" y="20" width="44" height="32" rx="6" S/><path d="M24 20v-7h16v7M27 28h10v7h7v10h-7v7H27v-7h-7V35h7z" S/>',
+  health: '<path d="M27 9h10v18h18v10H37v18H27V37H9V27h18z" S/>',
   settings: '<circle cx="32" cy="32" r="10" S/><circle cx="32" cy="32" r="22" stroke-dasharray="7 6" S/>',
   routines: '<path d="M8 46h48M28 45a13 13 0 0 1 26 0M12 25h16v17H12zM28 29h4a6 6 0 0 1 0 12h-4" S/><path d="M41 18v-6M51 23l4-4" S/>',
   'create workflow': '<rect x="12" y="23" width="28" height="26" rx="5" S/><rect x="20" y="15" width="28" height="26" rx="5" S/><path d="M44 50h14M52 44l6 6-6 6" S/>',
