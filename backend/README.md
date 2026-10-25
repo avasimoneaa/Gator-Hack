@@ -95,6 +95,12 @@ Twinly's docs: https://www.twinly.tech/docs/developer-api
 | `GET /api/status` | Is the Mac online? What can the key do? | — |
 | `GET /api/usage` | Prompts / usage left | — |
 | `POST /api/tasks` | Do something on the Mac ("read my newest email") | `{"prompt": "..."}` |
+| `GET /api/appointments` 🔒 | List the signed-in profile's appointment requests for the manage screen | — |
+| `GET /api/appointments/<id>?wait=20` 🔒 | Refresh one request and sync its current Twinly job status | — |
+| `POST /api/appointments/prepare` 🔒 | Idempotently find and stage an appointment without submitting | `{"appointment_type":"follow_up","urgency":"soon","preferred_time":"morning","transport":"uber","client_request_id":"<UUID>"}` |
+| `POST /api/appointments/<id>/cancel` 🔒 | Cancel a preparation or an unsubmitted staged request | `{}` |
+| `POST /api/appointments/<id>/confirm` 🔒 | Submit exactly one staged appointment after the user reviewed it | `{"approved_summary":"<exact Twinly result>","confirmed":true,"confirmation_id":"<UUID>"}` |
+| `POST /api/appointments/<id>/resolve-uncertain` 🔒 | Close an uncertain record after checking Twinly history and, if a booking may have happened, the provider account | `{"checked":true}` |
 | `POST /api/messages` | Send a text | `{"to": "Mom", "text": "...", "confirmed": true}` |
 | `POST /api/calls` | Phone someone in the user's voice | `{"to": "...", "goal": "...", "confirmed": true}` |
 | `POST /api/speak` | Say a phrase in the user's own voice | `{"text": "..."}` |
@@ -104,11 +110,17 @@ Twinly's docs: https://www.twinly.tech/docs/developer-api
 
 Texts and calls are refused unless the app sends `"confirmed": true`, because they go out immediately. Always show the user a confirmation screen first.
 
+The gaze appointment flow offers two upcoming local date/time slots and sends the selected ISO-8601 value with its UTC offset. Older clients may still send `morning`, `afternoon`, or `any` as `preferred_time`.
+
 ### How a task works
 
 1. The app sends `POST /api/tasks` and gets back a **job** with an `id` and `status: "queued"`.
 2. The app calls `GET /api/jobs/<id>?wait=25` again and again. Each reply is a status change: `running`, `needs_approval`, then `done`, `failed`, `canceled`, or `expired`.
 3. When it's `done`, the answer is in `result.answer` — read it aloud.
+
+### Appointment booking
+
+`GET /api/appointments` lists only requests owned by the signed-in profile. Preparation and confirmation use client UUID keys; repeating the same request key reuses the original Twinly job. ReVoice also blocks another request while one is active or a booking outcome is uncertain. If Twinly's response is ambiguous, it never retries the action automatically. The user can close an uncertain record only after attesting that they checked Twinly history and, for a possible booking, the provider account; this does not change or cancel anything at the provider. `GET /api/appointments/<id>` refreshes a stored job. Preparation asks Twinly for a structured `ready` outcome before ReVoice presents a slot. Nothing is submitted at preparation time. Confirmation re-reads Twinly's preparation job, verifies the structured outcome, and compares the approved summary exactly with its completed result. It reserves the one-time confirmation before creating the submission job. ReVoice marks a booking complete only when Twinly returns the structured `booked` outcome; a missing or ambiguous outcome remains uncertain and requires an external check. The flow stops if Twinly cannot identify a real matching slot or if the result changes. A ride or family arrangement is included only when selected and when the user confirms the exact staged details, including any fare.
 
 ## How the new features work
 

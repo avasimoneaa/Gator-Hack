@@ -98,6 +98,21 @@ CREATE TABLE IF NOT EXISTS task_history (
     job_id     TEXT,
     created_at TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Two-phase appointment booking: Twinly stages a slot first, then submits
+-- only after the user explicitly confirms the exact staged summary.
+CREATE TABLE IF NOT EXISTS appointment_requests (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id      INTEGER NOT NULL REFERENCES profiles(id),
+    user_id         INTEGER NOT NULL REFERENCES users(id),
+    details         TEXT    NOT NULL,
+    prepare_job_id  TEXT    NOT NULL UNIQUE,
+    summary         TEXT,
+    status          TEXT    NOT NULL DEFAULT 'preparing',
+    submit_job_id   TEXT UNIQUE,
+    created_at      TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -127,6 +142,12 @@ def close_db(_error=None):
 NEW_COLUMNS = {
     "profiles": {"fatigue_mode": "INTEGER NOT NULL DEFAULT 1"},
     "contacts": {"help_order": "INTEGER"},  # 1 = text first in an emergency; empty = not a help contact
+    "appointment_requests": {
+        "client_request_id": "TEXT",
+        "confirmation_key": "TEXT",
+        "submission_result": "TEXT",
+        "error": "TEXT",
+    },
 }
 
 
@@ -139,6 +160,25 @@ def init_db():
         for column, definition in columns.items():
             if column not in existing:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS appointment_request_client_key "
+        "ON appointment_requests(profile_id, client_request_id) WHERE client_request_id IS NOT NULL"
+    )
+    conn.execute(
+        "UPDATE appointment_requests SET status = 'submitting' "
+        "WHERE status = 'submitted' AND submit_job_id IS NOT NULL"
+    )
+    conn.execute(
+        "UPDATE appointment_requests SET status = 'submission_uncertain', "
+        "error = COALESCE(error, 'Older submission has no recorded Twinly job ID; check Twinly task history.') "
+        "WHERE status = 'submitted' AND submit_job_id IS NULL"
+    )
+    conn.execute(
+        "UPDATE appointment_requests SET status = 'preparation_uncertain', "
+        "error = COALESCE(error, 'The server stopped while starting this Twinly request. Check Twinly task history before starting another request.') "
+        "WHERE status = 'starting' AND prepare_job_id LIKE 'pending-%' "
+        "AND created_at < datetime('now', '-2 minutes')"
+    )
     conn.commit()
     conn.close()
 
